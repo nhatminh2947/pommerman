@@ -3,6 +3,7 @@ import cv2
 
 import numpy as np
 import pommerman
+from pommerman import constants
 from pommerman import agents
 from pommerman import helpers
 from abc import abstractmethod
@@ -31,9 +32,7 @@ class PommeEnvironment(Process):
             is_render,
             env_idx,
             child_conn,
-            history_size=4,
-            h=84,
-            w=84,
+            is_team=False
     ):
         super(PommeEnvironment, self).__init__()
         self.daemon = True
@@ -51,53 +50,108 @@ class PommeEnvironment(Process):
         self.env_idx = env_idx
         self.steps = 0
         self.episode = 0
-        self.rall = 0
-        self.recent_rlist = deque(maxlen=100)
         self.child_conn = child_conn
 
-        self.last_action = 0
+        if is_team:
+            self.training_agents = [(env_idx % 4), ((env_idx % 4) + 2) % 4]  # Agents id is [0, 2] or [1, 3]
+        else:
+            self.training_agents = env_idx % 4  # Setting for single agent (FFA)
 
-        self.history_size = history_size
-        self.history = np.zeros([history_size, h, w])
-        self.h = h
-        self.w = w
-
-        self.reset()
+        print("Training Agents:", self.training_agents)
+        self.current_obs = self.reset()
 
     def run(self):
         super(PommeEnvironment, self).run()
         while True:
-            action = self.child_conn.recv()
+            training_agent_action = self.child_conn.recv()
+
             if self.is_render:
                 self.env.render()
 
-            obs, reward, done, info = self.env.step(action)
-            if self.is_render:
-                self.env.render()
+            actions = self.env.act(self.current_obs)
 
+            actions[self.training_agents] = training_agent_action
+            print('training_agent_action:', training_agent_action)
+            observations, reward, done, info = self.env.step(actions)
+
+            self.episode_reward += reward[self.training_agents]
             self.steps += 1
 
+            print(done)
+
             if done:
-                self.recent_rlist.append(self.rall)
-                print(
-                    "[Episode {}({})] Step: {}  Reward: {}  Recent Reward: {}  Stage: {} current x:{}   max x:{}".format(
-                        self.episode,
-                        self.env_idx,
-                        self.steps,
-                        self.rall,
-                        np.mean(self.recent_rlist),
-                        info['stage'],
-                        info['x_pos'],
-                        self.max_pos))
+                print("[Episode {}({})] Step: {}  Reward: {} Episode reward: {}".format(self.episode,
+                                                                                        self.env_idx,
+                                                                                        self.steps,
+                                                                                        reward[self.training_agents],
+                                                                                        self.episode_reward))
+                observations = self.reset()
+            training_agent_obs = []
 
-                self.history = self.reset()
+            # for id in self.training_agents:
+            #     training_agent_obs.append(self.featurize(observations[id]))
+            #     print('observation[{}] = {}'.format(id, observations[id]))
 
-            self.child_conn.send([obs, reward, done])
+            self.child_conn.send(
+                [self.featurize(observations[self.training_agents]), reward[self.training_agents], self.episode_reward,
+                 done, info])
 
     def reset(self):
-        self.last_action = 0
         self.steps = 0
         self.episode += 1
-        self.rall = 0
+        self.episode_reward = 0
 
         return self.env.reset()
+
+    def featurize(self, obs):
+        # print(obs)
+        id = 0
+        features = np.zeros(shape=(16, 11, 11))
+        # print(features)
+        for item in constants.Item:
+            if item in [constants.Item.Bomb,
+                        constants.Item.Flames,
+                        constants.Item.Agent0,
+                        constants.Item.Agent1,
+                        constants.Item.Agent2,
+                        constants.Item.Agent3,
+                        constants.Item.AgentDummy]:
+                continue
+            # print("item:", item)
+            # print("board:", obs["board"])
+
+            features[id, :, :][obs["board"] == item.value] = 1
+            id += 1
+        # print(id)
+        features[id, :, :] = obs["flame_life"]
+        id += 1
+
+        features[id, :, :] = obs["bomb_life"]
+        id += 1
+
+        features[id, :, :] = obs["bomb_blast_strength"]
+        id += 1
+
+        features[id, :, :][obs["position"]] = 1
+        id += 1
+
+        features[id, :, :][obs["board"] == obs["teammate"].value] = 1
+        id += 1
+
+        for enemy in obs["enemies"]:
+            features[id, :, :][obs["board"] == enemy.value] = 1
+        id += 1
+
+        features[id, :, :] = np.full(shape=(11, 11), fill_value=obs["ammo"])
+        id += 1
+
+        features[id, :, :] = np.full(shape=(11, 11), fill_value=obs["blast_strength"])
+        id += 1
+
+        features[id, :, :] = np.full(shape=(11, 11), fill_value=(1 if obs["can_kick"] else 0))
+        id += 1
+
+        # print("id:", id)
+        # features["abilities"] = np.asarray([obs["ammo"], obs["blast_strength"], obs["can_kick"]], dtype=np.float)
+
+        return features
