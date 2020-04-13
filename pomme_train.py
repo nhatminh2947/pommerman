@@ -8,8 +8,11 @@ from nes_py.wrappers import JoypadSpace
 import pommerman
 from pommerman import agents
 from pommerman import helpers
+from pommerman import constants
 
 import numpy as np
+
+N_CHANNELS = 16
 
 
 def main():
@@ -35,8 +38,10 @@ def main():
 
     env.close()
 
-    is_load_model = False
-    is_render = True
+    is_load_model = default_config.getboolean('LoadModel')
+    is_render = default_config.getboolean('Render')
+
+    # print(is_load_model)
 
     model_path = 'models/{}.model'.format(env_id)
     predictor_path = 'models/{}.pred'.format(env_id)
@@ -65,10 +70,8 @@ def main():
     ext_coef = float(default_config['ExtCoef'])
     int_coef = float(default_config['IntCoef'])
 
-    life_done = default_config.getboolean('LifeDone')
-
     reward_rms = RunningMeanStd()
-    obs_rms = RunningMeanStd(shape=(1, 1, 84, 84))
+    obs_rms = RunningMeanStd(shape=(1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE))
     pre_obs_norm_step = int(default_config['ObsNormStep'])
     discounted_reward = RewardForwardFilter(int_gamma)
 
@@ -80,7 +83,7 @@ def main():
         raise NotImplementedError
 
     agent = agent(
-        input_size,
+        N_CHANNELS,
         output_size,
         num_worker,
         num_step,
@@ -124,8 +127,6 @@ def main():
         parent_conns.append(parent_conn)
         child_conns.append(child_conn)
 
-    states = np.zeros([num_worker, 4, 84, 84])
-
     sample_episode = 0
     sample_rall = 0
     sample_step = 0
@@ -144,14 +145,16 @@ def main():
             parent_conn.send(action)
 
         for parent_conn in parent_conns:
-            s, r, d, rd, lr = parent_conn.recv()
-            next_obs.append(s[3, :, :].reshape([1, 84, 84]))
+            obs, reward, episode_reward, done, info = parent_conn.recv()
+            next_obs.append(obs)
 
         if len(next_obs) % (num_step * num_worker) == 0:
             next_obs = np.stack(next_obs)
             obs_rms.update(next_obs)
             next_obs = []
     print('End to initalize...')
+
+    states = np.zeros([num_worker, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
 
     while True:
         total_state, total_reward, total_done, total_next_state, total_action, total_int_reward, total_next_obs, total_ext_values, total_int_values, total_policy, total_policy_np = \
@@ -161,19 +164,20 @@ def main():
 
         # Step 1. n-step rollout
         for _ in range(num_step):
-            actions, value_ext, value_int, policy = agent.get_action(np.float32(states) / 255.)
+            actions, value_ext, value_int, policy = agent.get_action(np.float32(states))  # Normalize state?
 
             for parent_conn, action in zip(parent_conns, actions):
                 parent_conn.send(action)
 
-            next_states, rewards, dones, log_rewards, next_obs = [], [], [], [], []
+            next_states, rewards, dones, episode_rewards, next_obs = [], [], [], [], []
             for parent_conn in parent_conns:
-                s, r, d, lr = parent_conn.recv()
-                next_states.append(s)
-                rewards.append(r)
-                dones.append(d)
-                log_rewards.append(lr)
-                next_obs.append(s[3, :, :].reshape([1, 84, 84]))
+                obs, reward, episode_reward, done, info = parent_conn.recv()
+                next_states.append(obs)
+                rewards.append(reward)
+                dones.append(dones)
+                episode_rewards.append(episode_reward)
+
+                next_obs.append(obs)
 
             next_states = np.stack(next_states)
             rewards = np.hstack(rewards)
@@ -199,20 +203,20 @@ def main():
 
             states = next_states[:, :, :, :]
 
-            sample_rall += log_rewards[sample_env_idx]
+            sample_rall += episode_rewards[sample_env_idx]
 
             sample_step += 1
             if dones[sample_env_idx]:
                 sample_episode += 1
                 writer.add_scalar('data/reward_per_epi', sample_rall, sample_episode)
-                writer.add_scalar('data/reward_per_rollout', sample_rall, global_update)
+                # writer.add_scalar('data/reward_per_rollout', sample_rall, global_update)
                 writer.add_scalar('data/step', sample_step, sample_episode)
                 sample_rall = 0
                 sample_step = 0
                 sample_i_rall = 0
 
         # calculate last next value
-        _, value_ext, value_int, _ = agent.get_action(np.float32(states) / 255.)
+        _, value_ext, value_int, _ = agent.get_action(np.float32(states))  # Normalize state?
         total_ext_values.append(value_ext)
         total_int_values.append(value_int)
         # --------------------------------------------------
@@ -237,7 +241,7 @@ def main():
         # normalize intrinsic reward
         total_int_reward /= np.sqrt(reward_rms.var)
         writer.add_scalar('data/int_reward_per_epi', np.sum(total_int_reward) / num_worker, sample_episode)
-        writer.add_scalar('data/int_reward_per_rollout', np.sum(total_int_reward) / num_worker, global_update)
+        # writer.add_scalar('data/int_reward_per_rollout', np.sum(total_int_reward) / num_worker, global_update)
         # -------------------------------------------------------------------------------------------
 
         # logging Max action probability
