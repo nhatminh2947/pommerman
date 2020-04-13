@@ -72,7 +72,7 @@ class Flatten(nn.Module):
 
 
 class CnnActorCriticNetwork(nn.Module):
-    def __init__(self, input_size, output_size, use_noisy_net=False):
+    def __init__(self, in_channels, output_size, use_noisy_net=False):
         super(CnnActorCriticNetwork, self).__init__()
 
         if use_noisy_net:
@@ -83,16 +83,18 @@ class CnnActorCriticNetwork(nn.Module):
 
         self.feature = nn.Sequential(
             nn.Conv2d(
-                in_channels=4,
+                in_channels=in_channels,
                 out_channels=32,
-                kernel_size=8,
-                stride=4),
+                kernel_size=3,
+                padding=1,
+                stride=1),
             nn.ReLU(),
             nn.Conv2d(
                 in_channels=32,
                 out_channels=64,
-                kernel_size=4,
-                stride=2),
+                kernel_size=3,
+                padding=1,
+                stride=1),
             nn.ReLU(),
             nn.Conv2d(
                 in_channels=64,
@@ -102,7 +104,7 @@ class CnnActorCriticNetwork(nn.Module):
             nn.ReLU(),
             Flatten(),
             linear(
-                7 * 7 * 64,
+                9 * 9 * 64,
                 256),
             nn.ReLU(),
             linear(
@@ -159,16 +161,16 @@ class CnnActorCriticNetwork(nn.Module):
 
 
 class RNDModel(nn.Module):
-    def __init__(self, input_size, output_size):
+    def __init__(self, in_channels, output_size):
         super(RNDModel, self).__init__()
 
-        self.input_size = input_size
+        self.in_channels = in_channels
         self.output_size = output_size
 
         feature_output = 7 * 7 * 64
         self.predictor = nn.Sequential(
             nn.Conv2d(
-                in_channels=1,
+                in_channels=self.in_channels,
                 out_channels=32,
                 kernel_size=8,
                 stride=4),
@@ -195,7 +197,7 @@ class RNDModel(nn.Module):
 
         self.target = nn.Sequential(
             nn.Conv2d(
-                in_channels=1,
+                in_channels=self.in_channels,
                 out_channels=32,
                 kernel_size=8,
                 stride=4),
