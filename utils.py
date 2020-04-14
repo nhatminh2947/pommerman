@@ -16,7 +16,7 @@ train_method = default_config['TrainMethod']
 
 def make_train_data(reward, done, value, gamma, num_step, num_worker):
     discounted_return = np.empty([num_worker, num_step])
-
+    print('value.shape:', np.shape(value))
     # Discounted Return
     if use_gae:
         gae = np.zeros_like([num_worker, ])

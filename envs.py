@@ -10,6 +10,7 @@ from pommerman import characters
 from abc import abstractmethod
 from collections import deque
 from copy import copy
+import pathlib
 
 import gym_super_mario_bros
 from nes_py.wrappers import JoypadSpace
@@ -33,6 +34,7 @@ class PommeEnvironment(Process):
             is_render,
             env_idx,
             child_conn,
+            json_dir=None,
             is_team=False
     ):
         super(PommeEnvironment, self).__init__()
@@ -45,6 +47,12 @@ class PommeEnvironment(Process):
             for agent_id, agent_string in enumerate(default_config['Agents'].split(','))
         ]
 
+        if is_team:
+            self.training_agents = [(env_idx % 4), ((env_idx % 4) + 2) % 4]  # Agents id is [0, 2] or [1, 3]
+        else:
+            self.training_agents = env_idx % 4  # Setting for single agent (FFA)
+            agent_list[self.training_agents] = agents.RandomAgent()
+
         self.env = pommerman.make(env_id, agent_list)
 
         self.is_render = is_render
@@ -52,11 +60,7 @@ class PommeEnvironment(Process):
         self.steps = 0
         self.episode = 0
         self.child_conn = child_conn
-
-        if is_team:
-            self.training_agents = [(env_idx % 4), ((env_idx % 4) + 2) % 4]  # Agents id is [0, 2] or [1, 3]
-        else:
-            self.training_agents = env_idx % 4  # Setting for single agent (FFA)
+        self.json_dir = json_dir
 
         print("Training Agents:", self.training_agents)
         self.current_obs = self.reset()
@@ -76,7 +80,7 @@ class PommeEnvironment(Process):
 
             self.current_obs = observations
 
-            if (constants.Item.Agent0.value + self.training_agents) not in observations[self.training_agents]['alive']:
+            if not self.env._agents[self.training_agents].is_alive:
                 # print(self.training_agents)
                 # print(observations[self.training_agents])
                 # print(reward)
@@ -85,15 +89,17 @@ class PommeEnvironment(Process):
             self.episode_reward += reward[self.training_agents]
             self.steps += 1
 
-            if self.is_render:
-                self.env.render(mode='rgb_array')
+            # if self.json_dir is not None:
+            #     dir = '{}/env_{}/{}'.format(self.json_dir, self.env_idx, self.episode)
+            #     pathlib.Path(dir).mkdir(parents=True, exist_ok=True)
+            #     self.env.save_json(dir)
 
             if done:
                 print("[Episode {}({})] Step: {} Episode reward: {}".format(self.episode,
                                                                             self.env_idx,
                                                                             self.steps,
                                                                             self.episode_reward))
-                observations = self.reset()
+                self.current_obs = self.reset()
             training_agent_obs = []
 
             # for id in self.training_agents:

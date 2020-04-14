@@ -53,6 +53,8 @@ def main():
     use_gae = default_config.getboolean('UseGAE')
     use_noisy_net = default_config.getboolean('UseNoisyNet')
 
+    json_dir = default_config['JsonDir']
+
     lam = float(default_config['Lambda'])
     num_worker = int(default_config['NumEnv'])
 
@@ -121,7 +123,8 @@ def main():
                         agent_list=default_config['Agents'],
                         is_render=is_render,
                         env_idx=idx,
-                        child_conn=child_conn)
+                        child_conn=child_conn,
+                        json_dir=json_dir)
         work.start()
         works.append(work)
         parent_conns.append(parent_conn)
@@ -158,7 +161,6 @@ def main():
 
     for i, work in enumerate(works):
         obs = work.reset()
-
         states[i, :, :, :] = work.featurize(obs[0])
 
     while True:
@@ -218,6 +220,7 @@ def main():
                 sample_step = 0
                 sample_i_rall = 0
 
+        # print('states.shape:', states.shape)
         # calculate last next value
         _, value_ext, value_int, _ = agent.get_action(np.float32(states))  # Normalize state?
         total_ext_values.append(value_ext)
@@ -231,8 +234,10 @@ def main():
         total_done = np.stack(total_done).transpose()
         total_next_obs = np.stack(total_next_obs).transpose([1, 0, 2, 3, 4]).reshape(
             [-1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
-        total_ext_values = np.stack(total_ext_values).transpose()
-        total_int_values = np.stack(total_int_values).transpose()
+        # print('total_ext_values.shape', np.shape(total_ext_values))
+        total_ext_values = np.squeeze(total_ext_values, axis=-1).transpose()
+        # print('total_ext_values.shape', np.shape(total_ext_values))
+        total_int_values = np.squeeze(total_int_values, axis=-1).transpose()
         total_logging_policy = np.vstack(total_policy_np)
 
         # Step 2. calculate intrinsic reward

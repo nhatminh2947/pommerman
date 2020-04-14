@@ -61,7 +61,7 @@ class RNDAgent(object):
 
         action = self.random_choice_prob_index(action_prob)
 
-        return action, value_ext.data.cpu().numpy().squeeze(), value_int.data.cpu().numpy().squeeze(), policy.detach()
+        return action, value_ext.data.cpu().numpy(), value_int.data.cpu().numpy(), policy.detach()
 
     @staticmethod
     def random_choice_prob_index(p, axis=1):
@@ -135,5 +135,5 @@ class RNDAgent(object):
                 self.optimizer.zero_grad()
                 loss = actor_loss + 0.5 * critic_loss - self.ent_coef * entropy + forward_loss
                 loss.backward()
-                global_grad_norm_(list(self.model.parameters())+list(self.rnd.predictor.parameters()))
+                global_grad_norm_(list(self.model.parameters()) + list(self.rnd.predictor.parameters()))
                 self.optimizer.step()
