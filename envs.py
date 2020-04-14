@@ -6,6 +6,7 @@ import pommerman
 from pommerman import constants
 from pommerman import agents
 from pommerman import helpers
+from pommerman import characters
 from abc import abstractmethod
 from collections import deque
 from copy import copy
@@ -71,27 +72,34 @@ class PommeEnvironment(Process):
             actions = self.env.act(self.current_obs)
 
             actions[self.training_agents] = training_agent_action
-            print('training_agent_action:', training_agent_action)
             observations, reward, done, info = self.env.step(actions)
+
+            self.current_obs = observations
+
+            if (constants.Item.Agent0.value + self.training_agents) not in observations[self.training_agents]['alive']:
+                # print(self.training_agents)
+                # print(observations[self.training_agents])
+                # print(reward)
+                done = True
 
             self.episode_reward += reward[self.training_agents]
             self.steps += 1
 
-            print(done)
+            if self.is_render:
+                self.env.render(mode='rgb_array')
 
             if done:
-                print("[Episode {}({})] Step: {}  Reward: {} Episode reward: {}".format(self.episode,
-                                                                                        self.env_idx,
-                                                                                        self.steps,
-                                                                                        reward[self.training_agents],
-                                                                                        self.episode_reward))
+                print("[Episode {}({})] Step: {} Episode reward: {}".format(self.episode,
+                                                                            self.env_idx,
+                                                                            self.steps,
+                                                                            self.episode_reward))
                 observations = self.reset()
             training_agent_obs = []
 
             # for id in self.training_agents:
             #     training_agent_obs.append(self.featurize(observations[id]))
-            #     print('observation[{}] = {}'.format(id, observations[id]))
-
+            # print('observation[{}] = {}'.format(self.training_agents, observations[self.training_agents]['board']))
+            #
             self.child_conn.send(
                 [self.featurize(observations[self.training_agents]), reward[self.training_agents], self.episode_reward,
                  done, info])
