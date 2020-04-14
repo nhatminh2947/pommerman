@@ -1,2 +1,4 @@
 runs
 models
+__pycache__
+.idea
