@@ -9,7 +9,7 @@ import pommerman
 from pommerman import agents
 from pommerman import helpers
 from pommerman import constants
-
+import pyglet
 import numpy as np
 
 N_CHANNELS = 16
@@ -156,6 +156,11 @@ def main():
 
     states = np.zeros([num_worker, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
 
+    for i, work in enumerate(works):
+        obs = work.reset()
+
+        states[i, :, :, :] = work.featurize(obs[0])
+
     while True:
         total_state, total_reward, total_done, total_next_state, total_action, total_int_reward, total_next_obs, total_ext_values, total_int_values, total_policy, total_policy_np = \
             [], [], [], [], [], [], [], [], [], [], []
@@ -169,17 +174,15 @@ def main():
             for parent_conn, action in zip(parent_conns, actions):
                 parent_conn.send(action)
 
-            next_states, rewards, dones, episode_rewards, next_obs = [], [], [], [], []
+            next_obs, rewards, dones, episode_rewards = [], [], [], []
             for parent_conn in parent_conns:
                 obs, reward, episode_reward, done, info = parent_conn.recv()
-                next_states.append(obs)
-                rewards.append(reward)
-                dones.append(dones)
-                episode_rewards.append(episode_reward)
 
                 next_obs.append(obs)
+                rewards.append(reward)
+                dones.append(done)
+                episode_rewards.append(episode_reward)
 
-            next_states = np.stack(next_states)
             rewards = np.hstack(rewards)
             dones = np.hstack(dones)
             next_obs = np.stack(next_obs)
@@ -201,7 +204,7 @@ def main():
             total_policy.append(policy)
             total_policy_np.append(policy.cpu().numpy())
 
-            states = next_states[:, :, :, :]
+            states = next_obs[:, :, :, :]
 
             sample_rall += episode_rewards[sample_env_idx]
 
@@ -221,11 +224,13 @@ def main():
         total_int_values.append(value_int)
         # --------------------------------------------------
 
-        total_state = np.stack(total_state).transpose([1, 0, 2, 3, 4]).reshape([-1, 4, 84, 84])
+        total_state = np.stack(total_state).transpose([1, 0, 2, 3, 4]).reshape(
+            [-1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
         total_reward = np.stack(total_reward).transpose().clip(-1, 1)
         total_action = np.stack(total_action).transpose().reshape([-1])
         total_done = np.stack(total_done).transpose()
-        total_next_obs = np.stack(total_next_obs).transpose([1, 0, 2, 3, 4]).reshape([-1, 1, 84, 84])
+        total_next_obs = np.stack(total_next_obs).transpose([1, 0, 2, 3, 4]).reshape(
+            [-1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
         total_ext_values = np.stack(total_ext_values).transpose()
         total_int_values = np.stack(total_int_values).transpose()
         total_logging_policy = np.vstack(total_policy_np)
@@ -274,7 +279,7 @@ def main():
         # -----------------------------------------------
 
         # Step 5. Training!
-        agent.train_model(np.float32(total_state) / 255., ext_target, int_target, total_action,
+        agent.train_model(np.float32(total_state), ext_target, int_target, total_action,
                           total_adv, ((total_next_obs - obs_rms.mean) / np.sqrt(obs_rms.var)).clip(-5, 5),
                           total_policy)
 
