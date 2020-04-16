@@ -4,23 +4,24 @@ from utils import *
 from config import *
 from torch.multiprocessing import Pipe
 
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 
 import numpy as np
 import pickle
 
+N_CHANNELS = 15
 
 def main():
     print({section: dict(config[section]) for section in config.sections()})
     env_id = default_config['EnvID']
     env_type = default_config['EnvType']
 
-    if env_type == 'mario':
-        env = BinarySpaceToDiscreteSpaceEnv(gym_super_mario_bros.make(env_id), COMPLEX_MOVEMENT)
-    elif env_type == 'atari':
-        env = gym.make(env_id)
-    else:
-        raise NotImplementedError
+    agent_list = [
+        helpers.make_agent_from_string(agent_string, agent_id)
+        for agent_id, agent_string in enumerate(default_config['Agents'].split(','))
+    ]
+    env = pommerman.make(env_id, agent_list)
+
     input_size = env.observation_space.shape  # 4
     output_size = env.action_space.n  # 2
 
@@ -57,16 +58,10 @@ def main():
     life_done = default_config.getboolean('LifeDone')
 
     agent = RNDAgent
-
-    if default_config['EnvType'] == 'atari':
-        env_type = AtariEnvironment
-    elif default_config['EnvType'] == 'mario':
-        env_type = MarioEnvironment
-    else:
-        raise NotImplementedError
+    env_type = PommeEnvironment
 
     agent = agent(
-        input_size,
+        N_CHANNELS,
         output_size,
         num_worker,
         num_step,
@@ -99,14 +94,20 @@ def main():
     child_conns = []
     for idx in range(num_worker):
         parent_conn, child_conn = Pipe()
-        work = env_type(env_id, is_render, idx, child_conn, sticky_action=sticky_action, p=action_prob,
-                        life_done=life_done)
+        work = env_type(env_id=env_id,
+                        agent_list=default_config['Agents'],
+                        is_render=False,
+                        env_idx=idx,
+                        child_conn=child_conn)
         work.start()
         works.append(work)
         parent_conns.append(parent_conn)
         child_conns.append(child_conn)
 
-    states = np.zeros([num_worker, 4, 84, 84])
+    states = np.zeros([num_worker, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
+    for i, work in enumerate(works):
+        obs = work.reset()
+        states[i, :, :, :] = work.featurize(obs[0])
 
     steps = 0
     rall = 0
@@ -114,22 +115,27 @@ def main():
     intrinsic_reward_list = []
     while not rd:
         steps += 1
-        actions, value_ext, value_int, policy = agent.get_action(np.float32(states) / 255.)
+        actions, value_ext, value_int, policy = agent.get_action(np.float32(states))
 
         for parent_conn, action in zip(parent_conns, actions):
             parent_conn.send(action)
 
-        next_states, rewards, dones, real_dones, log_rewards, next_obs = [], [], [], [], [], []
+        next_obs, rewards, dones, episode_rewards = [], [], [], []
         for parent_conn in parent_conns:
-            s, r, d, rd, lr = parent_conn.recv()
-            rall += r
-            next_states = s.reshape([1, 4, 84, 84])
-            next_obs = s[3, :, :].reshape([1, 1, 84, 84])
+            obs, reward, episode_reward, done, info = parent_conn.recv()
+
+            next_obs.append(obs)
+            rewards.append(reward)
+            dones.append(done)
+
+        # print(next_obs)
+        # print(np.shape(next_obs))
+        next_obs = np.stack(next_obs)
 
         # total reward = int reward + ext Reward
         intrinsic_reward = agent.compute_intrinsic_reward(next_obs)
         intrinsic_reward_list.append(intrinsic_reward)
-        states = next_states[:, :, :, :]
+        states = next_obs[:, :, :, :]
 
         if rd:
             intrinsic_reward_list = (intrinsic_reward_list - np.mean(intrinsic_reward_list)) / np.std(

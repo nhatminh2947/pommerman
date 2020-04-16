@@ -1,4 +1,2 @@
-runs
-models
-__pycache__
-.idea
+runs/
+models/
