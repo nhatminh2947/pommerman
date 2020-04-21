@@ -57,15 +57,20 @@ class RNDAgent(object):
 
         self.model = self.model.to(self.device)
 
-    def get_action(self, state):
-        state = torch.Tensor(state).to(self.device)
+    def get_action(self, states):
+        state = torch.Tensor(states).to(self.device)
         state = state.float()
         policy, value_ext, value_int = self.model(state)
         action_prob = F.softmax(policy, dim=-1).data.cpu().numpy()
+        print('action_prob:', action_prob)
+        actions = self.random_choice_prob_index(action_prob)
 
-        action = self.random_choice_prob_index(action_prob)
+        print('actions: ', actions)
+        print('value_ext: ', value_ext)
+        print('value_int: ', value_int)
+        print('policy: ', policy)
 
-        return action, value_ext.data.cpu().numpy(), value_int.data.cpu().numpy(), policy.detach()
+        return actions, value_ext.data.cpu().numpy(), value_int.data.cpu().numpy(), policy.detach()
 
     @staticmethod
     def random_choice_prob_index(p, axis=1):

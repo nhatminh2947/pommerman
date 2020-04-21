@@ -122,32 +122,8 @@ def main():
         parent_conns.append(parent_conn)
         child_conns.append(child_conn)
 
-    sample_episode = 0
-    sample_rall = 0
-    sample_step = 0
-    sample_env_idx = 0
-    sample_i_rall = 0
     global_update = 0
     global_step = 0
-
-    # normalize obs
-    print('Start to initailize observation normalization parameter.....')
-    next_obs = []
-    for step in range(num_step * pre_obs_norm_step):
-        actions = np.random.randint(0, output_size, size=(num_worker,))
-
-        for parent_conn, action in zip(parent_conns, actions):
-            parent_conn.send(action)
-
-        for parent_conn in parent_conns:
-            obs, reward, episode_reward, done, info = parent_conn.recv()
-            next_obs.append(obs)
-
-        if len(next_obs) % (num_step * num_worker) == 0:
-            next_obs = np.stack(next_obs)
-            obs_rms.update(next_obs)
-            next_obs = []
-    print('End to initalize...')
 
     states = np.zeros([num_worker, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
 
@@ -161,11 +137,9 @@ def main():
         global_step += (num_worker * num_step)
         global_update += 1
 
-
-
         # Step 1. n-step rollout
         for _ in range(num_step):
-            actions, value_ext, value_int, policy = agent.get_action(np.float32(states))  # Normalize state?
+            actions, value_ext, value_int, policy = agent.get_action(states)  # Normalize state?
 
             for parent_conn, action in zip(parent_conns, actions):
                 parent_conn.send(action)
@@ -184,10 +158,8 @@ def main():
             next_obs = np.stack(next_obs)
 
             # total reward = int reward + ext Reward
-            intrinsic_reward = agent.compute_intrinsic_reward(
-                ((next_obs - obs_rms.mean) / np.sqrt(obs_rms.var)).clip(-5, 5))
+            intrinsic_reward = agent.compute_intrinsic_reward(next_obs)
             intrinsic_reward = np.hstack(intrinsic_reward)
-            sample_i_rall += intrinsic_reward[sample_env_idx]
 
             total_next_obs.append(next_obs)
             total_int_reward.append(intrinsic_reward)
@@ -202,32 +174,18 @@ def main():
 
             states = next_obs[:, :, :, :]
 
-            sample_rall += episode_rewards[sample_env_idx]
-
-            sample_step += 1
-            if dones[sample_env_idx]:
-                sample_episode += 1
-                writer.add_scalar('data/reward_per_epi', sample_rall, sample_episode)
-                # writer.add_scalar('data/reward_per_rollout', sample_rall, global_update)
-                writer.add_scalar('data/step', sample_step, sample_episode)
-                sample_rall = 0
-                sample_step = 0
-                sample_i_rall = 0
-
         # print('states.shape:', states.shape)
         # calculate last next value
-        _, value_ext, value_int, _ = agent.get_action(np.float32(states))  # Normalize state?
+        _, value_ext, value_int, _ = agent.get_action(states)  # Normalize state?
         total_ext_values.append(value_ext)
         total_int_values.append(value_int)
         # --------------------------------------------------
 
-        total_state = np.stack(total_state).transpose([1, 0, 2, 3, 4]).reshape(
-            [-1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
+        total_state = np.stack(total_state).reshape([-1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
         total_reward = np.stack(total_reward).transpose().clip(-1, 1)
         total_action = np.stack(total_action).transpose().reshape([-1])
         total_done = np.stack(total_done).transpose()
-        total_next_obs = np.stack(total_next_obs).transpose([1, 0, 2, 3, 4]).reshape(
-            [-1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
+        total_next_obs = np.stack(total_next_obs).reshape([-1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
         # print('total_ext_values.shape', np.shape(total_ext_values))
         total_ext_values = np.squeeze(total_ext_values, axis=-1).transpose()
         # print('total_ext_values.shape', np.shape(total_ext_values))
@@ -244,12 +202,12 @@ def main():
 
         # normalize intrinsic reward
         total_int_reward /= np.sqrt(reward_rms.var)
-        writer.add_scalar('data/int_reward_per_epi', np.sum(total_int_reward) / num_worker, sample_episode)
-        # writer.add_scalar('data/int_reward_per_rollout', np.sum(total_int_reward) / num_worker, global_update)
+        # writer.add_scalar('data/int_reward_per_epi', np.sum(total_int_reward) / num_worker, sample_episode)
+        writer.add_scalar('data/int_reward_per_rollout', np.sum(total_int_reward) / num_worker, global_update)
         # -------------------------------------------------------------------------------------------
 
         # logging Max action probability
-        writer.add_scalar('data/max_prob', softmax(total_logging_policy).max(1).mean(), sample_episode)
+        # writer.add_scalar('data/max_prob', softmax(total_logging_policy).max(1).mean(), sample_episode)
 
         # Step 3. make target and advantage
         # extrinsic reward calculate
