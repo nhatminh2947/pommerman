@@ -1,8 +1,8 @@
-import utils
-
 from agents import *
 from envs import *
 from utils import *
+
+N_CHANNELS = 15
 
 
 def main():
@@ -49,7 +49,7 @@ def main():
     agent = RNDAgent
 
     agent = agent(
-        input_size,
+        N_CHANNELS,
         output_size,
         gamma
     )

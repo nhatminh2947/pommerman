@@ -1,3 +1,5 @@
+from collections import deque
+
 from torch.multiprocessing import Pipe
 from torch.utils.tensorboard import SummaryWriter
 
@@ -5,7 +7,7 @@ from agents import *
 from envs import *
 from utils import *
 
-N_CHANNELS = 16
+N_CHANNELS = 15
 
 
 def main():
@@ -124,6 +126,9 @@ def main():
 
     global_update = 0
     global_step = 0
+    global_episode = 0
+
+    episode_rewards = deque(maxlen=100)
 
     states = np.zeros([num_worker, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
 
@@ -144,14 +149,15 @@ def main():
             for parent_conn, action in zip(parent_conns, actions):
                 parent_conn.send(action)
 
-            next_obs, rewards, dones, episode_rewards = [], [], [], []
+            next_obs, rewards, dones = [], [], []
             for parent_conn in parent_conns:
                 obs, reward, episode_reward, done, info = parent_conn.recv()
 
                 next_obs.append(obs)
                 rewards.append(reward)
                 dones.append(done)
-                episode_rewards.append(episode_reward)
+                if done:
+                    episode_rewards.append(episode_reward)
 
             rewards = np.hstack(rewards)
             dones = np.hstack(dones)
@@ -180,15 +186,15 @@ def main():
         total_ext_values.append(value_ext)
         total_int_values.append(value_int)
         # --------------------------------------------------
-
         total_state = np.stack(total_state).reshape([-1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
         total_reward = np.stack(total_reward).transpose().clip(-1, 1)
         total_action = np.stack(total_action).transpose().reshape([-1])
+        # print(total_action)
+        # print(total_action.shape)
         total_done = np.stack(total_done).transpose()
         total_next_obs = np.stack(total_next_obs).reshape([-1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
         # print('total_ext_values.shape', np.shape(total_ext_values))
         total_ext_values = np.squeeze(total_ext_values, axis=-1).transpose()
-        # print('total_ext_values.shape', np.shape(total_ext_values))
         total_int_values = np.squeeze(total_int_values, axis=-1).transpose()
         total_logging_policy = np.vstack(total_policy_np)
 
@@ -202,12 +208,6 @@ def main():
 
         # normalize intrinsic reward
         total_int_reward /= np.sqrt(reward_rms.var)
-        # writer.add_scalar('data/int_reward_per_epi', np.sum(total_int_reward) / num_worker, sample_episode)
-        writer.add_scalar('data/int_reward_per_rollout', np.sum(total_int_reward) / num_worker, global_update)
-        # -------------------------------------------------------------------------------------------
-
-        # logging Max action probability
-        # writer.add_scalar('data/max_prob', softmax(total_logging_policy).max(1).mean(), sample_episode)
 
         # Step 3. make target and advantage
         # extrinsic reward calculate
@@ -234,11 +234,39 @@ def main():
         # Step 4. update obs normalize param
         obs_rms.update(total_next_obs)
         # -----------------------------------------------
+        # print(np.shape(total_int_values[:, :-1]))
+        # print(np.shape(int_target))
+        # print(np.shape(total_ext_values))
+        # print(np.shape(ext_target))
 
         # Step 5. Training!
-        agent.train_model(np.float32(total_state), ext_target, int_target, total_action,
-                          total_adv, ((total_next_obs - obs_rms.mean) / np.sqrt(obs_rms.var)).clip(-5, 5),
-                          total_policy)
+        loss, critic_ext_loss, critic_int_loss, actor_loss, forward_loss, entropy = agent.train_model(
+            np.float32(total_state), ext_target, int_target, total_action,
+            total_adv, ((total_next_obs - obs_rms.mean) / np.sqrt(obs_rms.var)).clip(-5, 5),
+            total_policy)
+        print(total_logging_policy)
+        if global_step % 10 == 0 or global_step == 1:
+            writer.add_scalar('loss/total_loss', loss, global_update)
+            writer.add_scalar('loss/critic_ext_loss', critic_ext_loss, global_update)
+            writer.add_scalar('loss/critic_int_loss', critic_int_loss, global_update)
+            writer.add_scalar('loss/actor_loss', actor_loss, global_update)
+            writer.add_scalar('loss/forward_loss', forward_loss, global_update)
+            writer.add_scalar('loss/entropy', entropy, global_update)
+
+            writer.add_scalar('reward/intrinsic_reward', np.sum(total_int_reward) / num_worker, global_update)
+            writer.add_scalar('reward/extrinsic_reward', np.mean(episode_rewards), global_update)
+
+            writer.add_scalar('data/average_bomb_per_update',
+                              np.sum(total_action == constants.Action.Bomb.value) / num_worker,
+                              global_update)
+            writer.add_scalar('data/max_prob', softmax(total_logging_policy).max(1).mean(), global_update)
+
+            writer.add_scalar('value/intrinsic_value', np.mean(total_int_values), global_update)
+            writer.add_scalar('value/extrinsic_value', np.mean(total_ext_values), global_update)
+            writer.add_scalar('value/iv_explained',
+                              explained_variance(total_int_values[:, :-1].reshape([-1]), int_target), global_update)
+            writer.add_scalar('value/ev_explained',
+                              explained_variance(total_ext_values[:, :-1].reshape([-1]), ext_target), global_update)
 
         if global_step % (num_worker * num_step * 100) == 0:
             print('Now Global Step :{}'.format(global_step))
