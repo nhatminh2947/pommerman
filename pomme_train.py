@@ -1,16 +1,9 @@
+from torch.multiprocessing import Pipe
+from torch.utils.tensorboard import SummaryWriter
+
 from agents import *
 from envs import *
 from utils import *
-from config import *
-from torch.multiprocessing import Pipe
-from torch.utils.tensorboard import SummaryWriter
-from nes_py.wrappers import JoypadSpace
-import pommerman
-from pommerman import agents
-from pommerman import helpers
-from pommerman import constants
-import pyglet
-import numpy as np
 
 N_CHANNELS = 16
 
@@ -23,8 +16,12 @@ def main():
 
     if env_type == 'pomme':
         agent_list = [
-            helpers.make_agent_from_string(agent_string, agent_id)
-            for agent_id, agent_string in enumerate(default_config['Agents'].split(','))
+            StaticAgent(),
+            StaticAgent(),
+            StaticAgent(),
+            StaticAgent()
+            # helpers.make_agent_from_string(agent_string, agent_id)
+            # for agent_id, agent_string in enumerate(default_config['Agents'].split(','))
         ]
         env = pommerman.make(env_id, agent_list)
     else:
@@ -77,18 +74,14 @@ def main():
     pre_obs_norm_step = int(default_config['ObsNormStep'])
     discounted_reward = RewardForwardFilter(int_gamma)
 
-    agent = RNDAgent
-
     if default_config['EnvType'] == 'pomme':
         env_type = PommeEnvironment
     else:
         raise NotImplementedError
 
-    agent = agent(
+    agent = RNDAgent(
         N_CHANNELS,
         output_size,
-        num_worker,
-        num_step,
         gamma,
         lam=lam,
         learning_rate=learning_rate,
@@ -99,7 +92,6 @@ def main():
         ppo_eps=ppo_eps,
         use_cuda=use_cuda,
         use_gae=use_gae,
-        use_noisy_net=use_noisy_net
     )
 
     if is_load_model:
@@ -161,13 +153,15 @@ def main():
 
     for i, work in enumerate(works):
         obs = work.reset()
-        states[i, :, :, :] = work.featurize(obs[0])
+        states[i, :, :, :] = featurize(obs[0])
 
     while True:
         total_state, total_reward, total_done, total_next_state, total_action, total_int_reward, total_next_obs, total_ext_values, total_int_values, total_policy, total_policy_np = \
             [], [], [], [], [], [], [], [], [], [], []
         global_step += (num_worker * num_step)
         global_update += 1
+
+
 
         # Step 1. n-step rollout
         for _ in range(num_step):

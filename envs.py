@@ -1,26 +1,10 @@
-import gym
-import cv2
-
-import numpy as np
 import pommerman
-from pommerman import constants
 from pommerman import agents
-from pommerman import helpers
-from pommerman import characters
-from abc import abstractmethod
-from collections import deque
-from copy import copy
-import pathlib
+from torch.multiprocessing import Process
 
-import gym_super_mario_bros
-from nes_py.wrappers import JoypadSpace
-from gym_super_mario_bros.actions import SIMPLE_MOVEMENT, COMPLEX_MOVEMENT
-
-from torch.multiprocessing import Pipe, Process
-
-from model import *
+import utils
+from agents import StaticAgent
 from config import *
-from PIL import Image
 
 train_method = default_config['TrainMethod']
 max_step_per_episode = int(default_config['MaxStepPerEpisode'])
@@ -43,8 +27,12 @@ class PommeEnvironment(Process):
         print(env_id)
 
         agent_list = [
-            helpers.make_agent_from_string(agent_string, agent_id)
-            for agent_id, agent_string in enumerate(default_config['Agents'].split(','))
+            StaticAgent(),
+            StaticAgent(),
+            StaticAgent(),
+            StaticAgent(),
+            # helpers.make_agent_from_string(agent_string, agent_id)
+            # for agent_id, agent_string in enumerate(default_config['Agents'].split(','))
         ]
 
         if is_team:
@@ -53,7 +41,7 @@ class PommeEnvironment(Process):
             self.training_agents = env_idx % 4  # Setting for single agent (FFA)
             agent_list[self.training_agents] = agents.RandomAgent()
 
-        self.env = pommerman.make(env_id, agent_list)
+        self.env = pommerman.make(env_id, agent_list, '000.json')
 
         self.is_render = is_render
         self.env_idx = env_idx
@@ -80,12 +68,6 @@ class PommeEnvironment(Process):
 
             self.current_obs = observations
 
-            if not self.env._agents[self.training_agents].is_alive:
-                # print(self.training_agents)
-                # print(observations[self.training_agents])
-                # print(reward)
-                done = True
-
             self.episode_reward += reward[self.training_agents]
             self.steps += 1
 
@@ -100,14 +82,9 @@ class PommeEnvironment(Process):
                                                                             self.steps,
                                                                             self.episode_reward))
                 self.current_obs = self.reset()
-            training_agent_obs = []
 
-            # for id in self.training_agents:
-            #     training_agent_obs.append(self.featurize(observations[id]))
-            # print('observation[{}] = {}'.format(self.training_agents, observations[self.training_agents]['board']))
-            #
             self.child_conn.send(
-                [self.featurize(observations[self.training_agents]), reward[self.training_agents], self.episode_reward,
+                [utils.featurize(observations[self.training_agents]), reward[self.training_agents], self.episode_reward,
                  done, info])
 
     def reset(self):
@@ -116,56 +93,3 @@ class PommeEnvironment(Process):
         self.episode_reward = 0
 
         return self.env.reset()
-
-    def featurize(self, obs):
-        # print(obs)
-        id = 0
-        features = np.zeros(shape=(16, 11, 11))
-        # print(features)
-        for item in constants.Item:
-            if item in [constants.Item.Bomb,
-                        constants.Item.Flames,
-                        constants.Item.Agent0,
-                        constants.Item.Agent1,
-                        constants.Item.Agent2,
-                        constants.Item.Agent3,
-                        constants.Item.AgentDummy]:
-                continue
-            # print("item:", item)
-            # print("board:", obs["board"])
-
-            features[id, :, :][obs["board"] == item.value] = 1
-            id += 1
-        # print(id)
-        features[id, :, :] = obs["flame_life"]
-        id += 1
-
-        features[id, :, :] = obs["bomb_life"]
-        id += 1
-
-        features[id, :, :] = obs["bomb_blast_strength"]
-        id += 1
-
-        features[id, :, :][obs["position"]] = 1
-        id += 1
-
-        features[id, :, :][obs["board"] == obs["teammate"].value] = 1
-        id += 1
-
-        for enemy in obs["enemies"]:
-            features[id, :, :][obs["board"] == enemy.value] = 1
-        id += 1
-
-        features[id, :, :] = np.full(shape=(11, 11), fill_value=obs["ammo"])
-        id += 1
-
-        features[id, :, :] = np.full(shape=(11, 11), fill_value=obs["blast_strength"])
-        id += 1
-
-        features[id, :, :] = np.full(shape=(11, 11), fill_value=(1 if obs["can_kick"] else 0))
-        id += 1
-
-        # print("id:", id)
-        # features["abilities"] = np.asarray([obs["ammo"], obs["blast_strength"], obs["can_kick"]], dtype=np.float)
-
-        return features

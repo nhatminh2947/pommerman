@@ -1,9 +1,8 @@
-import torch.nn.functional as F
-import torch.nn as nn
-import torch
-import torch.optim as optim
-import numpy as np
 import math
+
+import numpy as np
+import torch
+import torch.nn as nn
 from torch.nn import init
 
 
@@ -170,7 +169,7 @@ class RNDModel(nn.Module):
         feature_output = 9 * 9 * 64
         self.predictor = nn.Sequential(
             nn.Conv2d(
-                in_channels=self.in_channels,
+                in_channels=in_channels,
                 out_channels=32,
                 kernel_size=3,
                 padding=1,

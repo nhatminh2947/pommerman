@@ -1,14 +1,21 @@
 import numpy as np
-
-import torch.nn.functional as F
-import torch.nn as nn
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
-
+from pommerman.agents import BaseAgent
+from pommerman.constants import Action
 from torch.distributions.categorical import Categorical
 
 from model import CnnActorCriticNetwork, RNDModel
 from utils import global_grad_norm_
+
+
+class StaticAgent(BaseAgent):
+    """ Static agent"""
+
+    def act(self, obs, action_space):
+        return Action.Stop.value
 
 
 class RNDAgent(object):
@@ -16,8 +23,6 @@ class RNDAgent(object):
             self,
             input_size,
             output_size,
-            num_env,
-            num_step,
             gamma,
             lam=0.95,
             learning_rate=1e-4,
@@ -30,11 +35,10 @@ class RNDAgent(object):
             use_gae=True,
             use_cuda=False,
             use_noisy_net=False):
+        print(input_size)
         self.model = CnnActorCriticNetwork(input_size, output_size, use_noisy_net)
-        self.num_env = num_env
         self.output_size = output_size
         self.input_size = input_size
-        self.num_step = num_step
         self.gamma = gamma
         self.lam = lam
         self.epoch = epoch

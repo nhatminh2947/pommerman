@@ -1,31 +1,25 @@
+import utils
+
 from agents import *
 from envs import *
 from utils import *
-from config import *
-from torch.multiprocessing import Pipe
-
-from tensorboardX import SummaryWriter
-
-import numpy as np
-import pickle
 
 
 def main():
     print({section: dict(config[section]) for section in config.sections()})
     env_id = default_config['EnvID']
-    env_type = default_config['EnvType']
 
-    if env_type == 'mario':
-        env = BinarySpaceToDiscreteSpaceEnv(gym_super_mario_bros.make(env_id), COMPLEX_MOVEMENT)
-    elif env_type == 'atari':
-        env = gym.make(env_id)
-    else:
-        raise NotImplementedError
-    input_size = env.observation_space.shape  # 4
+    agent_list = [
+        StaticAgent(),
+        StaticAgent(),
+        StaticAgent(),
+        StaticAgent()
+    ]
+    env = pommerman.make(env_id, agent_list, '000.json')
+    env.reset()
+
+    input_size = 16
     output_size = env.action_space.n  # 2
-
-    if 'Breakout' in env_id:
-        output_size -= 1
 
     env.close()
 
@@ -49,38 +43,15 @@ def main():
     batch_size = int(num_step * num_worker / mini_batch)
     learning_rate = float(default_config['LearningRate'])
     entropy_coef = float(default_config['Entropy'])
-    gamma = float(default_config['Gamma'])
     clip_grad_norm = float(default_config['ClipGradNorm'])
 
-    sticky_action = False
-    action_prob = float(default_config['ActionProb'])
-    life_done = default_config.getboolean('LifeDone')
-
+    gamma = float(default_config['Gamma'])
     agent = RNDAgent
-
-    if default_config['EnvType'] == 'atari':
-        env_type = AtariEnvironment
-    elif default_config['EnvType'] == 'mario':
-        env_type = MarioEnvironment
-    else:
-        raise NotImplementedError
 
     agent = agent(
         input_size,
         output_size,
-        num_worker,
-        num_step,
-        gamma,
-        lam=lam,
-        learning_rate=learning_rate,
-        ent_coef=entropy_coef,
-        clip_grad_norm=clip_grad_norm,
-        epoch=epoch,
-        batch_size=batch_size,
-        ppo_eps=ppo_eps,
-        use_cuda=use_cuda,
-        use_gae=use_gae,
-        use_noisy_net=use_noisy_net
+        gamma
     )
 
     print('Loading Pre-trained model....')
@@ -94,50 +65,20 @@ def main():
         agent.rnd.target.load_state_dict(torch.load(target_path, map_location='cpu'))
     print('End load...')
 
-    works = []
-    parent_conns = []
-    child_conns = []
-    for idx in range(num_worker):
-        parent_conn, child_conn = Pipe()
-        work = env_type(env_id, is_render, idx, child_conn, sticky_action=sticky_action, p=action_prob,
-                        life_done=life_done)
-        work.start()
-        works.append(work)
-        parent_conns.append(parent_conn)
-        child_conns.append(child_conn)
+    obs = env.reset()
+    state = torch.from_numpy(utils.featurize(obs[0])).unsqueeze(0).float()
 
-    states = np.zeros([num_worker, 4, 84, 84])
+    while True:
+        env.render()
+        action, int_value, ext_value, policy = agent.get_action(state=state)
 
-    steps = 0
-    rall = 0
-    rd = False
-    intrinsic_reward_list = []
-    while not rd:
-        steps += 1
-        actions, value_ext, value_int, policy = agent.get_action(np.float32(states) / 255.)
+        actions = env.act(obs)
+        actions[0] = action[0]
+        obs, reward, done, info = env.step(actions)
 
-        for parent_conn, action in zip(parent_conns, actions):
-            parent_conn.send(action)
-
-        next_states, rewards, dones, real_dones, log_rewards, next_obs = [], [], [], [], [], []
-        for parent_conn in parent_conns:
-            s, r, d, rd, lr = parent_conn.recv()
-            rall += r
-            next_states = s.reshape([1, 4, 84, 84])
-            next_obs = s[3, :, :].reshape([1, 1, 84, 84])
-
-        # total reward = int reward + ext Reward
-        intrinsic_reward = agent.compute_intrinsic_reward(next_obs)
-        intrinsic_reward_list.append(intrinsic_reward)
-        states = next_states[:, :, :, :]
-
-        if rd:
-            intrinsic_reward_list = (intrinsic_reward_list - np.mean(intrinsic_reward_list)) / np.std(
-                intrinsic_reward_list)
-            with open('int_reward', 'wb') as f:
-                pickle.dump(intrinsic_reward_list, f)
-            steps = 0
-            rall = 0
+        if done:
+            print('info: ', info)
+            break
 
 
 if __name__ == '__main__':
