@@ -120,20 +120,14 @@ class PommeEnvironment(Process):
     def featurize(self, obs):
         # print(obs)
         id = 0
-        features = np.zeros(shape=(16, 11, 11))
+        features = np.zeros(shape=(15, 11, 11))
         # print(features)
-        for item in constants.Item:
-            if item in [constants.Item.Bomb,
-                        constants.Item.Flames,
-                        constants.Item.Agent0,
-                        constants.Item.Agent1,
-                        constants.Item.Agent2,
-                        constants.Item.Agent3,
-                        constants.Item.AgentDummy]:
-                continue
-            # print("item:", item)
-            # print("board:", obs["board"])
-
+        for item in [constants.Item.Passage,
+                     constants.Item.Rigid,
+                     constants.Item.Wood,
+                     constants.Item.ExtraBomb,
+                     constants.Item.IncrRange,
+                     constants.Item.Kick]:
             features[id, :, :][obs["board"] == item.value] = 1
             id += 1
         # print(id)
@@ -164,8 +158,5 @@ class PommeEnvironment(Process):
 
         features[id, :, :] = np.full(shape=(11, 11), fill_value=(1 if obs["can_kick"] else 0))
         id += 1
-
-        # print("id:", id)
-        # features["abilities"] = np.asarray([obs["ammo"], obs["blast_strength"], obs["can_kick"]], dtype=np.float)
 
         return features

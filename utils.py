@@ -16,7 +16,6 @@ train_method = default_config['TrainMethod']
 
 def make_train_data(reward, done, value, gamma, num_step, num_worker):
     discounted_return = np.empty([num_worker, num_step])
-    print('value.shape:', np.shape(value))
     # Discounted Return
     if use_gae:
         gae = np.zeros_like([num_worker, ])
@@ -69,6 +68,10 @@ class RunningMeanStd(object):
         self.mean = new_mean
         self.var = new_var
         self.count = new_count
+
+        # print('new mean: ', new_mean)
+        # print('new_var: ', new_var)
+        # print('new_count: ', new_count)
 
 
 class RewardForwardFilter(object):
@@ -124,3 +127,16 @@ def global_grad_norm_(parameters, norm_type=2):
         total_norm = total_norm ** (1. / norm_type)
 
     return total_norm
+
+def explained_variance(ypred,y):
+    """
+    Computes fraction of variance that ypred explains about y.
+    Returns 1 - Var[y-ypred] / Var[y]
+    interpretation:
+        ev=0  =>  might as well have predicted zero
+        ev=1  =>  perfect prediction
+        ev<0  =>  worse than just predicting zero
+    """
+    assert y.ndim == 1 and ypred.ndim == 1
+    vary = np.var(y)
+    return np.nan if vary==0 else 1 - np.var(y-ypred)/vary

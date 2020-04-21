@@ -96,6 +96,13 @@ class RNDAgent(object):
             log_prob_old = m_old.log_prob(y_batch)
             # ------------------------------------------------------------
 
+        batch_forward_loss = []
+        batch_actor_loss = []
+        batch_critic_ext_loss = []
+        batch_critic_int_loss = []
+        batch_loss = []
+        batch_entropy = []
+
         for i in range(self.epoch):
             np.random.shuffle(sample_range)
             for j in range(int(len(s_batch) / self.batch_size)):
@@ -137,3 +144,19 @@ class RNDAgent(object):
                 loss.backward()
                 global_grad_norm_(list(self.model.parameters()) + list(self.rnd.predictor.parameters()))
                 self.optimizer.step()
+
+                batch_forward_loss.append(forward_loss.item())
+                batch_actor_loss.append(actor_loss.item())
+                batch_critic_ext_loss.append(critic_ext_loss.item())
+                batch_critic_int_loss.append(critic_int_loss.item())
+                batch_loss.append(loss.item())
+                batch_entropy.append(entropy.item())
+
+        loss = np.mean(batch_loss)
+        critic_ext_loss = np.mean(batch_critic_ext_loss)
+        critic_int_loss = np.mean(batch_critic_int_loss)
+        actor_loss = np.mean(batch_actor_loss)
+        forward_loss = np.mean(batch_forward_loss)
+        entropy = np.mean(batch_entropy)
+
+        return loss, critic_ext_loss, critic_int_loss, actor_loss, forward_loss, entropy
