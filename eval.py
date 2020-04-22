@@ -62,6 +62,8 @@ def main():
         actions[0] = action[0]
         obs, reward, done, info = env.step(actions)
         state = torch.from_numpy(utils.featurize(obs[0])).unsqueeze(0).float().numpy()
+        print(obs[0])
+        print(info)
 
         if done:
             print('info: ', info)

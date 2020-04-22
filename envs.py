@@ -53,6 +53,7 @@ class PommeEnvironment(Process):
         self.env.reset()
         self.episode_reward = 0
         self.num_bombs = 0
+        self.alive = True
 
         print("Training Agents:", self.training_agents)
 
@@ -75,10 +76,26 @@ class PommeEnvironment(Process):
             if agent_action == constants.Action.Bomb.value:
                 self.num_bombs += 1
 
+            if self.alive:
+                self.alive = (self.training_agents + constants.Item.Agent0.value) in observations[self.training_agents][
+                    'alive']
+
             if done:
-                print("Episode #{} Steps: {} Reward: {} Info: {}".format(self.episode, self.steps,
-                                                                         self.episode_reward,
-                                                                         info))
+                if not self.alive:
+                    result = constants.Result.Loss
+                else:
+                    if info['result'] == constants.Result.Win:
+                        result = constants.Result.Win
+                    else:
+                        result = constants.Result.Tie
+
+                print(
+                    "Env #{}\t\tEpisode #{}\t\tSteps: {}\t\tReward: {}\t\tResult: {}".format(self.env_idx, self.episode,
+                                                                                             self.steps,
+                                                                                             self.episode_reward,
+                                                                                             result))
+
+                info['episode_result'] = result
                 info['episode_reward'] = self.episode_reward
                 info['num_bombs'] = self.num_bombs
                 observations = self.reset()
@@ -88,7 +105,9 @@ class PommeEnvironment(Process):
 
     def reset(self):
         self.steps = 0
-        self.episode += 1
         self.episode_reward = 0
+        self.alive = True
+        self.episode += 1
+        self.num_bombs = 0
 
         return self.env.reset()

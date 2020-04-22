@@ -128,7 +128,11 @@ def main():
     global_episode = 0
 
     episode_rewards = deque(maxlen=1000)
-    episode_bombs = deque(maxlen=1000)
+    count_bomb = 0
+    episode_wins = 0
+    episode_ties = 0
+    episode_losses = 0
+    episode_this_update = 0
 
     states = np.zeros([num_worker, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
 
@@ -161,7 +165,16 @@ def main():
 
                 if done:
                     episode_rewards.append(info['episode_reward'])
-                    episode_bombs.append(info['num_bombs'])
+                    count_bomb += info['num_bombs']
+
+                    if info['episode_result'] == constants.Result.Win:
+                        episode_wins += 1
+                    elif info['episode_result'] == constants.Result.Tie:
+                        episode_ties += 1
+                    else:
+                        episode_losses += 1
+
+                    episode_this_update += 1
                     global_episode += 1
 
             rewards = np.hstack(rewards)
@@ -275,9 +288,12 @@ def main():
             writer.add_scalar('reward/max_extrinsic_reward', 0 if not episode_rewards else np.max(episode_rewards),
                               global_update)
 
-            writer.add_scalar('data/mean_bomb_per_episode', 0 if not episode_bombs else np.mean(episode_bombs),
+            writer.add_scalar('data/mean_bomb_per_episode', count_bomb / episode_this_update,
                               global_update)
             writer.add_scalar('data/max_prob', softmax(total_logging_policy).max(1).mean(), global_update)
+            writer.add_scalar('data/win_rate', episode_wins / episode_this_update, global_update)
+            writer.add_scalar('data/tie_rate', episode_ties / episode_this_update, global_update)
+            writer.add_scalar('data/loss_rate', episode_losses / episode_this_update, global_update)
 
             writer.add_scalar('value/intrinsic_value', np.mean(total_int_values), global_update)
             writer.add_scalar('value/extrinsic_value', np.mean(total_ext_values), global_update)
@@ -287,7 +303,12 @@ def main():
                               explained_variance(total_ext_values[:, :-1].reshape([-1]), ext_target), global_update)
 
             episode_rewards.clear()
-            episode_bombs.clear()
+
+            count_bomb = 0
+            episode_this_update = 0
+            episode_wins = 0
+            episode_ties = 0
+            episode_losses = 0
 
         if global_step % (num_worker * num_step * 50) == 0:
             print('Now Global Step :{}'.format(global_step))
