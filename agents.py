@@ -57,18 +57,26 @@ class RNDAgent(object):
 
         self.model = self.model.to(self.device)
 
-    def get_action(self, states):
-        state = torch.Tensor(states).to(self.device)
+    def act(self, states):
+        state = torch.from_numpy(states).to(self.device)
         state = state.float()
         policy, value_ext, value_int = self.model(state)
         action_prob = F.softmax(policy, dim=-1).data.cpu().numpy()
         print('action_prob:', action_prob)
+        action = np.argmax(action_prob)
+        return action
+
+    def get_action(self, states):
+        state = torch.from_numpy(states).to(self.device)
+        state = state.float()
+        policy, value_ext, value_int = self.model(state)
+        action_prob = F.softmax(policy, dim=-1).data.cpu().numpy()
         actions = self.random_choice_prob_index(action_prob)
 
-        print('actions: ', actions)
-        print('value_ext: ', value_ext)
-        print('value_int: ', value_int)
-        print('policy: ', policy)
+        # print('action_prob:', action_prob)
+        # print('actions: ', actions)
+        # print('value_ext: ', value_ext)
+        # print('policy: ', policy)
 
         return actions, value_ext.data.cpu().numpy(), value_int.data.cpu().numpy(), policy.detach()
 
@@ -78,7 +86,7 @@ class RNDAgent(object):
         return (p.cumsum(axis=axis) > r).argmax(axis=axis)
 
     def compute_intrinsic_reward(self, next_obs):
-        next_obs = torch.FloatTensor(next_obs).to(self.device)
+        next_obs = torch.from_numpy(next_obs).float().to(self.device)
 
         target_next_feature = self.rnd.target(next_obs)
         predict_next_feature = self.rnd.predictor(next_obs)
@@ -87,12 +95,12 @@ class RNDAgent(object):
         return intrinsic_reward.data.cpu().numpy()
 
     def train_model(self, s_batch, target_ext_batch, target_int_batch, y_batch, adv_batch, next_obs_batch, old_policy):
-        s_batch = torch.FloatTensor(s_batch).to(self.device)
-        target_ext_batch = torch.FloatTensor(target_ext_batch).to(self.device)
-        target_int_batch = torch.FloatTensor(target_int_batch).to(self.device)
-        y_batch = torch.LongTensor(y_batch).to(self.device)
-        adv_batch = torch.FloatTensor(adv_batch).to(self.device)
-        next_obs_batch = torch.FloatTensor(next_obs_batch).to(self.device)
+        s_batch = torch.from_numpy(s_batch).float().to(self.device)
+        target_ext_batch = torch.from_numpy(target_ext_batch).float().to(self.device)
+        target_int_batch = torch.from_numpy(target_int_batch).float().to(self.device)
+        y_batch = torch.from_numpy(y_batch).long().to(self.device)
+        adv_batch = torch.from_numpy(adv_batch).float().to(self.device)
+        next_obs_batch = torch.from_numpy(next_obs_batch).float().to(self.device)
 
         sample_range = np.arange(len(s_batch))
         forward_mse = nn.MSELoss(reduction='none')

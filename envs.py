@@ -1,5 +1,5 @@
 import pommerman
-from pommerman import agents
+from pommerman import constants
 from torch.multiprocessing import Process
 
 import utils
@@ -35,13 +35,15 @@ class PommeEnvironment(Process):
             # for agent_id, agent_string in enumerate(default_config['Agents'].split(','))
         ]
 
-        if is_team:
-            self.training_agents = [(env_idx % 4), ((env_idx % 4) + 2) % 4]  # Agents id is [0, 2] or [1, 3]
-        else:
-            self.training_agents = env_idx % 4  # Setting for single agent (FFA)
-            agent_list[self.training_agents] = agents.RandomAgent()
+        # if is_team:
+        #     self.training_agents = [(env_idx % 4), ((env_idx % 4) + 2) % 4]  # Agents id is [0, 2] or [1, 3]
+        # else:
+        #     self.training_agents = env_idx % 4  # Setting for single agent (FFA)
+        #     agent_list[self.training_agents] = agents.RandomAgent()
 
-        self.env = pommerman.make(env_id, agent_list, '000.json')
+        self.training_agents = 0
+
+        self.env = pommerman.make(env_id, agent_list, 'a_line.json')
 
         self.is_render = is_render
         self.env_idx = env_idx
@@ -50,42 +52,37 @@ class PommeEnvironment(Process):
         self.child_conn = child_conn
         self.json_dir = json_dir
 
+        self.env.reset()
+        self.episode_reward = 0
+
         print("Training Agents:", self.training_agents)
-        self.current_obs = self.reset()
 
     def run(self):
         super(PommeEnvironment, self).run()
         while True:
-            training_agent_action = self.child_conn.recv()
+            agent_action = self.child_conn.recv()
 
             if self.is_render:
                 self.env.render()
 
-            actions = self.env.act(self.current_obs)
+            actions = self.env.act(self.env.get_observations())
 
-            actions[self.training_agents] = training_agent_action
+            actions[self.training_agents] = agent_action
             observations, reward, done, info = self.env.step(actions)
-
-            self.current_obs = observations
 
             self.episode_reward += reward[self.training_agents]
             self.steps += 1
 
-            # if self.json_dir is not None:
-            #     dir = '{}/env_{}/{}'.format(self.json_dir, self.env_idx, self.episode)
-            #     pathlib.Path(dir).mkdir(parents=True, exist_ok=True)
-            #     self.env.save_json(dir)
+            info['episode_reward'] = self.episode_reward
 
             if done:
-                print("[Episode {}({})] Step: {} Episode reward: {}".format(self.episode,
-                                                                            self.env_idx,
-                                                                            self.steps,
-                                                                            self.episode_reward))
-                self.current_obs = self.reset()
+                print("Episode #{} Steps: {} Reward: {} Info: {}".format(self.episode, self.steps,
+                                                                                         self.episode_reward,
+                                                                                         info))
+                observations = self.reset()
 
             self.child_conn.send(
-                [utils.featurize(observations[self.training_agents]), reward[self.training_agents], self.episode_reward,
-                 done, info])
+                [utils.featurize(observations[self.training_agents]), reward[self.training_agents], done, info])
 
     def reset(self):
         self.steps = 0

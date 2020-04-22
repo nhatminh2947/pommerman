@@ -7,7 +7,7 @@ from agents import *
 from envs import *
 from utils import *
 
-N_CHANNELS = 15
+N_CHANNELS = 16
 
 
 def main():
@@ -128,7 +128,7 @@ def main():
     global_step = 0
     global_episode = 0
 
-    episode_rewards = deque(maxlen=100)
+    episode_rewards = deque(maxlen=1000)
 
     states = np.zeros([num_worker, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
 
@@ -137,8 +137,10 @@ def main():
         states[i, :, :, :] = featurize(obs[0])
 
     while True:
-        total_state, total_reward, total_done, total_next_state, total_action, total_int_reward, total_next_obs, total_ext_values, total_int_values, total_policy, total_policy_np = \
+        total_state, total_reward, total_done, total_next_state, total_action, total_int_reward, total_next_obs, \
+        total_ext_values, total_int_values, total_policy, total_policy_np = \
             [], [], [], [], [], [], [], [], [], [], []
+
         global_step += (num_worker * num_step)
         global_update += 1
 
@@ -151,13 +153,15 @@ def main():
 
             next_obs, rewards, dones = [], [], []
             for parent_conn in parent_conns:
-                obs, reward, episode_reward, done, info = parent_conn.recv()
+                obs, reward, done, info = parent_conn.recv()
 
                 next_obs.append(obs)
                 rewards.append(reward)
                 dones.append(done)
+
                 if done:
-                    episode_rewards.append(episode_reward)
+                    episode_rewards.append(info['episode_reward'])
+                    global_episode += 1
 
             rewards = np.hstack(rewards)
             dones = np.hstack(dones)
@@ -186,13 +190,15 @@ def main():
         total_ext_values.append(value_ext)
         total_int_values.append(value_int)
         # --------------------------------------------------
-        total_state = np.stack(total_state).reshape([-1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
-        total_reward = np.stack(total_reward).transpose().clip(-1, 1)
+        total_state = np.stack(total_state).transpose([1, 0, 2, 3, 4]).reshape(
+            [-1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
+        total_reward = np.stack(total_reward).transpose()
         total_action = np.stack(total_action).transpose().reshape([-1])
         # print(total_action)
         # print(total_action.shape)
         total_done = np.stack(total_done).transpose()
-        total_next_obs = np.stack(total_next_obs).reshape([-1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
+        total_next_obs = np.stack(total_next_obs).transpose([1, 0, 2, 3, 4]).reshape(
+            [-1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
         # print('total_ext_values.shape', np.shape(total_ext_values))
         total_ext_values = np.squeeze(total_ext_values, axis=-1).transpose()
         total_int_values = np.squeeze(total_int_values, axis=-1).transpose()
@@ -208,6 +214,9 @@ def main():
 
         # normalize intrinsic reward
         total_int_reward /= np.sqrt(reward_rms.var)
+
+        # print('total_int_reward', total_int_reward)
+        # print('total_int_values', total_int_values)
 
         # Step 3. make target and advantage
         # extrinsic reward calculate
@@ -227,6 +236,8 @@ def main():
                                               num_step,
                                               num_worker)
 
+        # print('int_target: ', int_target)
+
         # add ext adv and int adv
         total_adv = int_adv * int_coef + ext_adv * ext_coef
         # -----------------------------------------------
@@ -241,10 +252,14 @@ def main():
 
         # Step 5. Training!
         loss, critic_ext_loss, critic_int_loss, actor_loss, forward_loss, entropy = agent.train_model(
-            np.float32(total_state), ext_target, int_target, total_action,
-            total_adv, ((total_next_obs - obs_rms.mean) / np.sqrt(obs_rms.var)).clip(-5, 5),
-            total_policy)
-        print(total_logging_policy)
+            s_batch=total_state,
+            target_ext_batch=ext_target,
+            target_int_batch=int_target,
+            y_batch=total_action,
+            adv_batch=total_adv,
+            next_obs_batch=total_next_obs,
+            old_policy=total_policy)
+        # print('episode_rewards', episode_rewards)
         if global_step % 10 == 0 or global_step == 1:
             writer.add_scalar('loss/total_loss', loss, global_update)
             writer.add_scalar('loss/critic_ext_loss', critic_ext_loss, global_update)
@@ -255,6 +270,7 @@ def main():
 
             writer.add_scalar('reward/intrinsic_reward', np.sum(total_int_reward) / num_worker, global_update)
             writer.add_scalar('reward/extrinsic_reward', np.mean(episode_rewards), global_update)
+            writer.add_scalar('reward/max_extrinsic_reward', np.max(episode_rewards), global_update)
 
             writer.add_scalar('data/average_bomb_per_update',
                               np.sum(total_action == constants.Action.Bomb.value) / num_worker,

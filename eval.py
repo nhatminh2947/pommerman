@@ -2,7 +2,7 @@ from agents import *
 from envs import *
 from utils import *
 
-N_CHANNELS = 15
+N_CHANNELS = 16
 
 
 def main():
@@ -15,12 +15,12 @@ def main():
         StaticAgent(),
         StaticAgent()
     ]
-    env = pommerman.make(env_id, agent_list, '000.json')
+    env = pommerman.make(env_id, agent_list, 'a_line.json')
     env.reset()
 
     input_size = 16
     output_size = env.action_space.n  # 2
-
+    print('output_size:', output_size)
     env.close()
 
     is_render = True
@@ -66,15 +66,16 @@ def main():
     print('End load...')
 
     obs = env.reset()
-    state = torch.from_numpy(utils.featurize(obs[0])).unsqueeze(0).float()
+    state = torch.from_numpy(utils.featurize(obs[0])).unsqueeze(0).float().numpy()
 
     while True:
         env.render()
-        action, int_value, ext_value, policy = agent.get_action(state=state)
+        action = agent.get_action(state)
 
         actions = env.act(obs)
         actions[0] = action[0]
         obs, reward, done, info = env.step(actions)
+        state = torch.from_numpy(utils.featurize(obs[0])).unsqueeze(0).float().numpy()
 
         if done:
             print('info: ', info)
