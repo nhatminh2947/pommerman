@@ -1,14 +1,21 @@
 import numpy as np
-
-import torch.nn.functional as F
-import torch.nn as nn
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
-
+from pommerman.agents import BaseAgent
+from pommerman.constants import Action
 from torch.distributions.categorical import Categorical
 
 from model import CnnActorCriticNetwork, RNDModel
 from utils import global_grad_norm_
+
+
+class StaticAgent(BaseAgent):
+    """ Static agent"""
+
+    def act(self, obs, action_space):
+        return Action.Stop.value
 
 
 class RNDAgent(object):
@@ -16,8 +23,6 @@ class RNDAgent(object):
             self,
             input_size,
             output_size,
-            num_env,
-            num_step,
             gamma,
             lam=0.95,
             learning_rate=1e-4,
@@ -30,11 +35,10 @@ class RNDAgent(object):
             use_gae=True,
             use_cuda=False,
             use_noisy_net=False):
+        print(input_size)
         self.model = CnnActorCriticNetwork(input_size, output_size, use_noisy_net)
-        self.num_env = num_env
         self.output_size = output_size
         self.input_size = input_size
-        self.num_step = num_step
         self.gamma = gamma
         self.lam = lam
         self.epoch = epoch
@@ -53,15 +57,28 @@ class RNDAgent(object):
 
         self.model = self.model.to(self.device)
 
-    def get_action(self, state):
-        state = torch.Tensor(state).to(self.device)
+    def act(self, states):
+        state = torch.from_numpy(states).to(self.device)
         state = state.float()
         policy, value_ext, value_int = self.model(state)
         action_prob = F.softmax(policy, dim=-1).data.cpu().numpy()
+        print('action_prob:', action_prob)
+        action = np.argmax(action_prob)
+        return action
 
-        action = self.random_choice_prob_index(action_prob)
+    def get_action(self, states):
+        state = torch.from_numpy(states).to(self.device)
+        state = state.float()
+        policy, value_ext, value_int = self.model(state)
+        action_prob = F.softmax(policy, dim=-1).data.cpu().numpy()
+        actions = self.random_choice_prob_index(action_prob)
 
-        return action, value_ext.data.cpu().numpy(), value_int.data.cpu().numpy(), policy.detach()
+        # print('action_prob:', action_prob)
+        # print('actions: ', actions)
+        # print('value_ext: ', value_ext)
+        # print('policy: ', policy)
+
+        return actions, value_ext.data.cpu().numpy(), value_int.data.cpu().numpy(), policy.detach()
 
     @staticmethod
     def random_choice_prob_index(p, axis=1):
@@ -69,7 +86,7 @@ class RNDAgent(object):
         return (p.cumsum(axis=axis) > r).argmax(axis=axis)
 
     def compute_intrinsic_reward(self, next_obs):
-        next_obs = torch.FloatTensor(next_obs).to(self.device)
+        next_obs = torch.from_numpy(next_obs).float().to(self.device)
 
         target_next_feature = self.rnd.target(next_obs)
         predict_next_feature = self.rnd.predictor(next_obs)
@@ -78,12 +95,12 @@ class RNDAgent(object):
         return intrinsic_reward.data.cpu().numpy()
 
     def train_model(self, s_batch, target_ext_batch, target_int_batch, y_batch, adv_batch, next_obs_batch, old_policy):
-        s_batch = torch.FloatTensor(s_batch).to(self.device)
-        target_ext_batch = torch.FloatTensor(target_ext_batch).to(self.device)
-        target_int_batch = torch.FloatTensor(target_int_batch).to(self.device)
-        y_batch = torch.LongTensor(y_batch).to(self.device)
-        adv_batch = torch.FloatTensor(adv_batch).to(self.device)
-        next_obs_batch = torch.FloatTensor(next_obs_batch).to(self.device)
+        s_batch = torch.from_numpy(s_batch).float().to(self.device)
+        target_ext_batch = torch.from_numpy(target_ext_batch).float().to(self.device)
+        target_int_batch = torch.from_numpy(target_int_batch).float().to(self.device)
+        y_batch = torch.from_numpy(y_batch).long().to(self.device)
+        adv_batch = torch.from_numpy(adv_batch).float().to(self.device)
+        next_obs_batch = torch.from_numpy(next_obs_batch).float().to(self.device)
 
         sample_range = np.arange(len(s_batch))
         forward_mse = nn.MSELoss(reduction='none')

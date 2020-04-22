@@ -1,33 +1,27 @@
 from agents import *
 from envs import *
 from utils import *
-from config import *
-from torch.multiprocessing import Pipe
+from gym.wrappers import Monitor
 
-from torch.utils.tensorboard import SummaryWriter
+N_CHANNELS = 16
 
-import numpy as np
-import pickle
-
-N_CHANNELS = 15
 
 def main():
     print({section: dict(config[section]) for section in config.sections()})
     env_id = default_config['EnvID']
-    env_type = default_config['EnvType']
 
     agent_list = [
-        helpers.make_agent_from_string(agent_string, agent_id)
-        for agent_id, agent_string in enumerate(default_config['Agents'].split(','))
+        StaticAgent(),
+        StaticAgent(),
+        StaticAgent(),
+        StaticAgent()
     ]
-    env = pommerman.make(env_id, agent_list)
+    env = pommerman.make(env_id, agent_list, 'a_line.json')
+    env.reset()
 
-    input_size = env.observation_space.shape  # 4
+    input_size = 16
     output_size = env.action_space.n  # 2
-
-    if 'Breakout' in env_id:
-        output_size -= 1
-
+    print('output_size:', output_size)
     env.close()
 
     is_render = True
@@ -50,32 +44,15 @@ def main():
     batch_size = int(num_step * num_worker / mini_batch)
     learning_rate = float(default_config['LearningRate'])
     entropy_coef = float(default_config['Entropy'])
-    gamma = float(default_config['Gamma'])
     clip_grad_norm = float(default_config['ClipGradNorm'])
 
-    sticky_action = False
-    action_prob = float(default_config['ActionProb'])
-    life_done = default_config.getboolean('LifeDone')
-
+    gamma = float(default_config['Gamma'])
     agent = RNDAgent
-    env_type = PommeEnvironment
 
     agent = agent(
         N_CHANNELS,
         output_size,
-        num_worker,
-        num_step,
-        gamma,
-        lam=lam,
-        learning_rate=learning_rate,
-        ent_coef=entropy_coef,
-        clip_grad_norm=clip_grad_norm,
-        epoch=epoch,
-        batch_size=batch_size,
-        ppo_eps=ppo_eps,
-        use_cuda=use_cuda,
-        use_gae=use_gae,
-        use_noisy_net=use_noisy_net
+        gamma
     )
 
     print('Loading Pre-trained model....')
@@ -89,61 +66,21 @@ def main():
         agent.rnd.target.load_state_dict(torch.load(target_path, map_location='cpu'))
     print('End load...')
 
-    works = []
-    parent_conns = []
-    child_conns = []
-    for idx in range(num_worker):
-        parent_conn, child_conn = Pipe()
-        work = env_type(env_id=env_id,
-                        agent_list=default_config['Agents'],
-                        is_render=False,
-                        env_idx=idx,
-                        child_conn=child_conn)
-        work.start()
-        works.append(work)
-        parent_conns.append(parent_conn)
-        child_conns.append(child_conn)
+    obs = env.reset()
+    state = torch.from_numpy(utils.featurize(obs[0])).unsqueeze(0).float().numpy()
 
-    states = np.zeros([num_worker, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
-    for i, work in enumerate(works):
-        obs = work.reset()
-        states[i, :, :, :] = work.featurize(obs[0])
+    while True:
+        env.render()
+        action = agent.get_action(state)
 
-    steps = 0
-    rall = 0
-    rd = False
-    intrinsic_reward_list = []
-    while not rd:
-        steps += 1
-        actions, value_ext, value_int, policy = agent.get_action(np.float32(states))
+        actions = env.act(obs)
+        actions[0] = action[0]
+        obs, reward, done, info = env.step(actions)
+        state = torch.from_numpy(utils.featurize(obs[0])).unsqueeze(0).float().numpy()
 
-        for parent_conn, action in zip(parent_conns, actions):
-            parent_conn.send(action)
-
-        next_obs, rewards, dones, episode_rewards = [], [], [], []
-        for parent_conn in parent_conns:
-            obs, reward, episode_reward, done, info = parent_conn.recv()
-
-            next_obs.append(obs)
-            rewards.append(reward)
-            dones.append(done)
-
-        # print(next_obs)
-        # print(np.shape(next_obs))
-        next_obs = np.stack(next_obs)
-
-        # total reward = int reward + ext Reward
-        intrinsic_reward = agent.compute_intrinsic_reward(next_obs)
-        intrinsic_reward_list.append(intrinsic_reward)
-        states = next_obs[:, :, :, :]
-
-        if rd:
-            intrinsic_reward_list = (intrinsic_reward_list - np.mean(intrinsic_reward_list)) / np.std(
-                intrinsic_reward_list)
-            with open('int_reward', 'wb') as f:
-                pickle.dump(intrinsic_reward_list, f)
-            steps = 0
-            rall = 0
+        if done:
+            print('info: ', info)
+            break
 
 
 if __name__ == '__main__':

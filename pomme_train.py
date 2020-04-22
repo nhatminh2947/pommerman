@@ -1,18 +1,13 @@
+from collections import deque
+
+from torch.multiprocessing import Pipe
+from torch.utils.tensorboard import SummaryWriter
+
 from agents import *
 from envs import *
 from utils import *
-from config import *
-from torch.multiprocessing import Pipe
-from torch.utils.tensorboard import SummaryWriter
-from nes_py.wrappers import JoypadSpace
-import pommerman
-from pommerman import agents
-from pommerman import helpers
-from pommerman import constants
-import pyglet
-import numpy as np
 
-N_CHANNELS = 15
+N_CHANNELS = 16
 
 
 def main():
@@ -23,8 +18,12 @@ def main():
 
     if env_type == 'pomme':
         agent_list = [
-            helpers.make_agent_from_string(agent_string, agent_id)
-            for agent_id, agent_string in enumerate(default_config['Agents'].split(','))
+            StaticAgent(),
+            StaticAgent(),
+            StaticAgent(),
+            StaticAgent()
+            # helpers.make_agent_from_string(agent_string, agent_id)
+            # for agent_id, agent_string in enumerate(default_config['Agents'].split(','))
         ]
         env = pommerman.make(env_id, agent_list)
     else:
@@ -77,18 +76,14 @@ def main():
     pre_obs_norm_step = int(default_config['ObsNormStep'])
     discounted_reward = RewardForwardFilter(int_gamma)
 
-    agent = RNDAgent
-
     if default_config['EnvType'] == 'pomme':
         env_type = PommeEnvironment
     else:
         raise NotImplementedError
 
-    agent = agent(
+    agent = RNDAgent(
         N_CHANNELS,
         output_size,
-        num_worker,
-        num_step,
         gamma,
         lam=lam,
         learning_rate=learning_rate,
@@ -99,7 +94,6 @@ def main():
         ppo_eps=ppo_eps,
         use_cuda=use_cuda,
         use_gae=use_gae,
-        use_noisy_net=use_noisy_net
     )
 
     if is_load_model:
@@ -134,63 +128,47 @@ def main():
     global_step = 0
     global_episode = 0
 
-    episode_rewards = deque(maxlen=100)
-
-    # normalize obs
-    print('Start to initailize observation normalization parameter.....')
-    next_obs = []
-    for step in range(num_step * pre_obs_norm_step):
-        actions = np.random.randint(0, output_size, size=(num_worker,))
-
-        for parent_conn, action in zip(parent_conns, actions):
-            parent_conn.send(action)
-
-        for parent_conn in parent_conns:
-            obs, reward, episode_reward, done, info = parent_conn.recv()
-            next_obs.append(obs)
-
-        if len(next_obs) % (num_step * num_worker) == 0:
-            next_obs = np.stack(next_obs)
-            obs_rms.update(next_obs)
-            next_obs = []
-    print('End to initalize...')
+    episode_rewards = deque(maxlen=1000)
 
     states = np.zeros([num_worker, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
 
     for i, work in enumerate(works):
         obs = work.reset()
-        states[i, :, :, :] = work.featurize(obs[0])
+        states[i, :, :, :] = featurize(obs[0])
 
     while True:
-        total_state, total_reward, total_done, total_next_state, total_action, total_int_reward, total_next_obs, total_ext_values, total_int_values, total_policy, total_policy_np = \
+        total_state, total_reward, total_done, total_next_state, total_action, total_int_reward, total_next_obs, \
+        total_ext_values, total_int_values, total_policy, total_policy_np = \
             [], [], [], [], [], [], [], [], [], [], []
+
         global_step += (num_worker * num_step)
         global_update += 1
 
         # Step 1. n-step rollout
         for _ in range(num_step):
-            actions, value_ext, value_int, policy = agent.get_action(np.float32(states))  # Normalize state?
+            actions, value_ext, value_int, policy = agent.get_action(states)  # Normalize state?
 
             for parent_conn, action in zip(parent_conns, actions):
                 parent_conn.send(action)
 
             next_obs, rewards, dones = [], [], []
             for parent_conn in parent_conns:
-                obs, reward, episode_reward, done, info = parent_conn.recv()
+                obs, reward, done, info = parent_conn.recv()
 
                 next_obs.append(obs)
                 rewards.append(reward)
                 dones.append(done)
+
                 if done:
-                    episode_rewards.append(episode_reward)
+                    episode_rewards.append(info['episode_reward'])
+                    global_episode += 1
 
             rewards = np.hstack(rewards)
             dones = np.hstack(dones)
             next_obs = np.stack(next_obs)
 
             # total reward = int reward + ext Reward
-            intrinsic_reward = agent.compute_intrinsic_reward(
-                ((next_obs - obs_rms.mean) / np.sqrt(obs_rms.var)).clip(-5, 5))
+            intrinsic_reward = agent.compute_intrinsic_reward(next_obs)
             intrinsic_reward = np.hstack(intrinsic_reward)
 
             total_next_obs.append(next_obs)
@@ -208,7 +186,7 @@ def main():
 
         # print('states.shape:', states.shape)
         # calculate last next value
-        _, value_ext, value_int, _ = agent.get_action(np.float32(states))  # Normalize state?
+        _, value_ext, value_int, _ = agent.get_action(states)  # Normalize state?
         total_ext_values.append(value_ext)
         total_int_values.append(value_int)
         # --------------------------------------------------
@@ -221,6 +199,7 @@ def main():
         total_done = np.stack(total_done).transpose()
         total_next_obs = np.stack(total_next_obs).transpose([1, 0, 2, 3, 4]).reshape(
             [-1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
+        # print('total_ext_values.shape', np.shape(total_ext_values))
         total_ext_values = np.squeeze(total_ext_values, axis=-1).transpose()
         total_int_values = np.squeeze(total_int_values, axis=-1).transpose()
         total_logging_policy = np.vstack(total_policy_np)
@@ -235,7 +214,9 @@ def main():
 
         # normalize intrinsic reward
         total_int_reward /= np.sqrt(reward_rms.var)
-        # -------------------------------------------------------------------------------------------
+
+        # print('total_int_reward', total_int_reward)
+        # print('total_int_values', total_int_values)
 
         # Step 3. make target and advantage
         # extrinsic reward calculate
@@ -255,6 +236,8 @@ def main():
                                               num_step,
                                               num_worker)
 
+        # print('int_target: ', int_target)
+
         # add ext adv and int adv
         total_adv = int_adv * int_coef + ext_adv * ext_coef
         # -----------------------------------------------
@@ -269,10 +252,14 @@ def main():
 
         # Step 5. Training!
         loss, critic_ext_loss, critic_int_loss, actor_loss, forward_loss, entropy = agent.train_model(
-            np.float32(total_state), ext_target, int_target, total_action,
-            total_adv, ((total_next_obs - obs_rms.mean) / np.sqrt(obs_rms.var)).clip(-5, 5),
-            total_policy)
-        print(total_logging_policy)
+            s_batch=total_state,
+            target_ext_batch=ext_target,
+            target_int_batch=int_target,
+            y_batch=total_action,
+            adv_batch=total_adv,
+            next_obs_batch=total_next_obs,
+            old_policy=total_policy)
+        # print('episode_rewards', episode_rewards)
         if global_step % 10 == 0 or global_step == 1:
             writer.add_scalar('loss/total_loss', loss, global_update)
             writer.add_scalar('loss/critic_ext_loss', critic_ext_loss, global_update)
@@ -283,6 +270,7 @@ def main():
 
             writer.add_scalar('reward/intrinsic_reward', np.sum(total_int_reward) / num_worker, global_update)
             writer.add_scalar('reward/extrinsic_reward', np.mean(episode_rewards), global_update)
+            writer.add_scalar('reward/max_extrinsic_reward', np.max(episode_rewards), global_update)
 
             writer.add_scalar('data/average_bomb_per_update',
                               np.sum(total_action == constants.Action.Bomb.value) / num_worker,
@@ -296,7 +284,7 @@ def main():
             writer.add_scalar('value/ev_explained',
                               explained_variance(total_ext_values[:, :-1].reshape([-1]), ext_target), global_update)
 
-        if global_step % (num_worker * num_step * 100) == 0:
+        if global_step % (num_worker * num_step * 50) == 0:
             print('Now Global Step :{}'.format(global_step))
             torch.save(agent.model.state_dict(), model_path)
             torch.save(agent.rnd.predictor.state_dict(), predictor_path)
