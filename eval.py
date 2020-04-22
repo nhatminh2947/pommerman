@@ -1,6 +1,7 @@
 from agents import *
 from envs import *
 from utils import *
+from gym.wrappers import Monitor
 
 N_CHANNELS = 16
 

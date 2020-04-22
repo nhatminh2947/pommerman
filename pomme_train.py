@@ -284,7 +284,7 @@ def main():
             writer.add_scalar('value/ev_explained',
                               explained_variance(total_ext_values[:, :-1].reshape([-1]), ext_target), global_update)
 
-        if global_step % (num_worker * num_step * 100) == 0:
+        if global_step % (num_worker * num_step * 50) == 0:
             print('Now Global Step :{}'.format(global_step))
             torch.save(agent.model.state_dict(), model_path)
             torch.save(agent.rnd.predictor.state_dict(), predictor_path)
