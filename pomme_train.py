@@ -50,7 +50,6 @@ def main():
 
     use_cuda = default_config.getboolean('UseGPU')
     use_gae = default_config.getboolean('UseGAE')
-    use_noisy_net = default_config.getboolean('UseNoisyNet')
 
     json_dir = default_config['JsonDir']
 
@@ -129,6 +128,7 @@ def main():
     global_episode = 0
 
     episode_rewards = deque(maxlen=1000)
+    episode_bombs = deque(maxlen=1000)
 
     states = np.zeros([num_worker, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
 
@@ -161,6 +161,7 @@ def main():
 
                 if done:
                     episode_rewards.append(info['episode_reward'])
+                    episode_bombs.append(info['num_bombs'])
                     global_episode += 1
 
             rewards = np.hstack(rewards)
@@ -269,11 +270,12 @@ def main():
             writer.add_scalar('loss/entropy', entropy, global_update)
 
             writer.add_scalar('reward/intrinsic_reward', np.sum(total_int_reward) / num_worker, global_update)
-            writer.add_scalar('reward/extrinsic_reward', np.mean(episode_rewards), global_update)
-            writer.add_scalar('reward/max_extrinsic_reward', np.max(episode_rewards), global_update)
+            writer.add_scalar('reward/mean_extrinsic_reward', 0 if not episode_rewards else np.mean(episode_rewards),
+                              global_update)
+            writer.add_scalar('reward/max_extrinsic_reward', 0 if not episode_rewards else np.max(episode_rewards),
+                              global_update)
 
-            writer.add_scalar('data/average_bomb_per_update',
-                              np.sum(total_action == constants.Action.Bomb.value) / num_worker,
+            writer.add_scalar('data/mean_bomb_per_episode', 0 if not episode_bombs else np.mean(episode_bombs),
                               global_update)
             writer.add_scalar('data/max_prob', softmax(total_logging_policy).max(1).mean(), global_update)
 
@@ -283,6 +285,9 @@ def main():
                               explained_variance(total_int_values[:, :-1].reshape([-1]), int_target), global_update)
             writer.add_scalar('value/ev_explained',
                               explained_variance(total_ext_values[:, :-1].reshape([-1]), ext_target), global_update)
+
+            episode_rewards.clear()
+            episode_bombs.clear()
 
         if global_step % (num_worker * num_step * 50) == 0:
             print('Now Global Step :{}'.format(global_step))

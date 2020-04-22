@@ -16,7 +16,7 @@ def main():
         StaticAgent(),
         StaticAgent()
     ]
-    env = pommerman.make(env_id, agent_list, 'a_line.json')
+    env = pommerman.make(env_id, agent_list)
     env.reset()
 
     input_size = 16
@@ -30,21 +30,6 @@ def main():
     target_path = 'models/{}.target'.format(env_id)
 
     use_cuda = False
-    use_gae = default_config.getboolean('UseGAE')
-    use_noisy_net = default_config.getboolean('UseNoisyNet')
-
-    lam = float(default_config['Lambda'])
-    num_worker = 1
-
-    num_step = int(default_config['NumStep'])
-
-    ppo_eps = float(default_config['PPOEps'])
-    epoch = int(default_config['Epoch'])
-    mini_batch = int(default_config['MiniBatch'])
-    batch_size = int(num_step * num_worker / mini_batch)
-    learning_rate = float(default_config['LearningRate'])
-    entropy_coef = float(default_config['Entropy'])
-    clip_grad_norm = float(default_config['ClipGradNorm'])
 
     gamma = float(default_config['Gamma'])
     agent = RNDAgent

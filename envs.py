@@ -1,5 +1,5 @@
 import pommerman
-from pommerman import constants
+from pommerman import constants, agents
 from torch.multiprocessing import Process
 
 import utils
@@ -27,23 +27,21 @@ class PommeEnvironment(Process):
         print(env_id)
 
         agent_list = [
-            StaticAgent(),
-            StaticAgent(),
-            StaticAgent(),
-            StaticAgent(),
+            agents.SimpleAgent(),
+            agents.SimpleAgent(),
+            agents.SimpleAgent(),
+            agents.SimpleAgent(),
             # helpers.make_agent_from_string(agent_string, agent_id)
             # for agent_id, agent_string in enumerate(default_config['Agents'].split(','))
         ]
 
-        # if is_team:
-        #     self.training_agents = [(env_idx % 4), ((env_idx % 4) + 2) % 4]  # Agents id is [0, 2] or [1, 3]
-        # else:
-        #     self.training_agents = env_idx % 4  # Setting for single agent (FFA)
-        #     agent_list[self.training_agents] = agents.RandomAgent()
+        if is_team:
+            self.training_agents = [(env_idx % 4), ((env_idx % 4) + 2) % 4]  # Agents id is [0, 2] or [1, 3]
+        else:
+            self.training_agents = env_idx % 4  # Setting for single agent (FFA)
+            agent_list[self.training_agents] = agents.RandomAgent()
 
-        self.training_agents = 0
-
-        self.env = pommerman.make(env_id, agent_list, 'a_line.json')
+        self.env = pommerman.make(env_id, agent_list)
 
         self.is_render = is_render
         self.env_idx = env_idx
@@ -54,6 +52,7 @@ class PommeEnvironment(Process):
 
         self.env.reset()
         self.episode_reward = 0
+        self.num_bombs = 0
 
         print("Training Agents:", self.training_agents)
 
@@ -73,12 +72,15 @@ class PommeEnvironment(Process):
             self.episode_reward += reward[self.training_agents]
             self.steps += 1
 
-            info['episode_reward'] = self.episode_reward
+            if agent_action == constants.Action.Bomb.value:
+                self.num_bombs += 1
 
             if done:
                 print("Episode #{} Steps: {} Reward: {} Info: {}".format(self.episode, self.steps,
-                                                                                         self.episode_reward,
-                                                                                         info))
+                                                                         self.episode_reward,
+                                                                         info))
+                info['episode_reward'] = self.episode_reward
+                info['num_bombs'] = self.num_bombs
                 observations = self.reset()
 
             self.child_conn.send(
