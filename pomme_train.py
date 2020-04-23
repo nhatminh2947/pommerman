@@ -229,7 +229,7 @@ def main():
 
         # intrinsic reward calculate
         # None Episodic
-        int_target, int_adv = make_train_data(total_int_reward,
+        int_target, int_adv = make_train_data(np.zeros_like(total_int_reward),
                                               np.zeros_like(total_int_reward),
                                               total_int_values,
                                               int_gamma,
@@ -239,7 +239,7 @@ def main():
         # print('int_target: ', int_target)
 
         # add ext adv and int adv
-        total_adv = int_adv * int_coef + ext_adv * ext_coef
+        total_adv = int_adv * 0 + ext_adv * ext_coef
         # -----------------------------------------------
 
         # Step 4. update obs normalize param
