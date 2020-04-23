@@ -260,7 +260,7 @@ def main():
             next_obs_batch=total_next_obs,
             old_policy=total_policy)
         # print('episode_rewards', episode_rewards)
-        if global_step % 10 == 0 or global_step == 1:
+        if global_update % 1 == 0 or global_step == 1:
             writer.add_scalar('loss/total_loss', loss, global_update)
             writer.add_scalar('loss/critic_ext_loss', critic_ext_loss, global_update)
             writer.add_scalar('loss/critic_int_loss', critic_int_loss, global_update)
@@ -284,7 +284,7 @@ def main():
             writer.add_scalar('value/ev_explained',
                               explained_variance(total_ext_values[:, :-1].reshape([-1]), ext_target), global_update)
 
-        if global_step % (num_worker * num_step * 50) == 0:
+        if global_update % 10 == 0:
             print('Now Global Step :{}'.format(global_step))
             torch.save(agent.model.state_dict(), model_path)
             torch.save(agent.rnd.predictor.state_dict(), predictor_path)

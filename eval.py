@@ -16,7 +16,7 @@ def main():
         StaticAgent(),
         StaticAgent()
     ]
-    env = pommerman.make(env_id, agent_list, 'a_line.json')
+    env = pommerman.make(env_id, agent_list, 'long_line.json')
     env.reset()
 
     input_size = 16
@@ -71,10 +71,10 @@ def main():
 
     while True:
         env.render()
-        action = agent.get_action(state)
+        action = agent.act(state)
 
         actions = env.act(obs)
-        actions[0] = action[0]
+        actions[0] = action
         obs, reward, done, info = env.step(actions)
         state = torch.from_numpy(utils.featurize(obs[0])).unsqueeze(0).float().numpy()
 

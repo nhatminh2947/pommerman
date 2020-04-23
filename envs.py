@@ -43,7 +43,7 @@ class PommeEnvironment(Process):
 
         self.training_agents = 0
 
-        self.env = pommerman.make(env_id, agent_list, 'a_line.json')
+        self.env = pommerman.make(env_id, agent_list, 'long_line.json')
 
         self.is_render = is_render
         self.env_idx = env_idx
