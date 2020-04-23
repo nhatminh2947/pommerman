@@ -48,6 +48,8 @@ def main():
 
     writer = SummaryWriter()
 
+    logging_interval = int(default_config['LoggingInterval'])
+
     use_cuda = default_config.getboolean('UseGPU')
     use_gae = default_config.getboolean('UseGAE')
     use_noisy_net = default_config.getboolean('UseNoisyNet')
@@ -260,7 +262,7 @@ def main():
             next_obs_batch=total_next_obs,
             old_policy=total_policy)
         # print('episode_rewards', episode_rewards)
-        if global_update % 1 == 0 or global_step == 1:
+        if global_update % logging_interval == 0 or global_step == 1:
             writer.add_scalar('loss/total_loss', loss, global_update)
             writer.add_scalar('loss/critic_ext_loss', critic_ext_loss, global_update)
             writer.add_scalar('loss/critic_int_loss', critic_int_loss, global_update)
