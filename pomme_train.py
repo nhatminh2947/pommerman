@@ -132,6 +132,7 @@ def main():
     episode_wins = 0
     episode_ties = 0
     episode_losses = 0
+    episode_steps = 0
     episode_this_update = 0
 
     states = np.zeros([num_worker, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
@@ -166,6 +167,7 @@ def main():
                 if done:
                     episode_rewards.append(info['episode_reward'])
                     count_bomb += info['num_bombs']
+                    episode_steps += info['steps']
 
                     if info['episode_result'] == constants.Result.Win:
                         episode_wins += 1
@@ -274,7 +276,7 @@ def main():
             next_obs_batch=total_next_obs,
             old_policy=total_policy)
         # print('episode_rewards', episode_rewards)
-        if global_step % 10 == 0 or global_step == 1:
+        if global_update % 10 == 0 or global_update == 1:
             writer.add_scalar('loss/total_loss', loss, global_update)
             writer.add_scalar('loss/critic_ext_loss', critic_ext_loss, global_update)
             writer.add_scalar('loss/critic_int_loss', critic_int_loss, global_update)
@@ -288,6 +290,7 @@ def main():
             writer.add_scalar('reward/max_extrinsic_reward', 0 if not episode_rewards else np.max(episode_rewards),
                               global_update)
 
+            writer.add_scalar('data/mean_steps_per_episode', episode_steps / episode_this_update, global_update)
             writer.add_scalar('data/mean_bomb_per_episode', count_bomb / episode_this_update,
                               global_update)
             writer.add_scalar('data/max_prob', softmax(total_logging_policy).max(1).mean(), global_update)
@@ -303,7 +306,7 @@ def main():
                               explained_variance(total_ext_values[:, :-1].reshape([-1]), ext_target), global_update)
 
             episode_rewards.clear()
-
+            episode_steps = 0
             count_bomb = 0
             episode_this_update = 0
             episode_wins = 0

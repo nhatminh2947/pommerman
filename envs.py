@@ -98,6 +98,8 @@ class PommeEnvironment(Process):
                 info['episode_result'] = result
                 info['episode_reward'] = self.episode_reward
                 info['num_bombs'] = self.num_bombs
+                info['steps'] = self.steps
+                
                 observations = self.reset()
 
             self.child_conn.send(

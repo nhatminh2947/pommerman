@@ -2,6 +2,7 @@ from agents import *
 from envs import *
 from utils import *
 from gym.wrappers import Monitor
+from pommerman import agents
 
 N_CHANNELS = 16
 
@@ -11,10 +12,10 @@ def main():
     env_id = default_config['EnvID']
 
     agent_list = [
-        StaticAgent(),
-        StaticAgent(),
-        StaticAgent(),
-        StaticAgent()
+        agents.SimpleAgent(),
+        agents.SimpleAgent(),
+        agents.SimpleAgent(),
+        agents.SimpleAgent()
     ]
     env = pommerman.make(env_id, agent_list)
     env.reset()
@@ -51,23 +52,36 @@ def main():
         agent.rnd.target.load_state_dict(torch.load(target_path, map_location='cpu'))
     print('End load...')
 
-    obs = env.reset()
-    state = torch.from_numpy(utils.featurize(obs[0])).unsqueeze(0).float().numpy()
-
-    while True:
-        env.render()
-        action = agent.get_action(state)
-
-        actions = env.act(obs)
-        actions[0] = action[0]
-        obs, reward, done, info = env.step(actions)
+    wins = 0
+    ties = 0
+    print("Evaluating...")
+    for i in range(100):
+        obs = env.reset()
         state = torch.from_numpy(utils.featurize(obs[0])).unsqueeze(0).float().numpy()
-        print(obs[0])
-        print(info)
+        done = False
+        while not done:
+            env.render()
+            action = agent.act(state)
 
-        if done:
-            print('info: ', info)
-            break
+            actions = env.act(obs)
+            actions[0] = action
+            obs, reward, done, info = env.step(actions)
+            state = torch.from_numpy(utils.featurize(obs[0])).unsqueeze(0).float().numpy()
+
+            if done:
+                result = constants.Result.Loss
+                if constants.Item.Agent0 in obs[0]['alive']:
+                    if info['result'] == constants.Result.Win:
+                        result = constants.Result.Win
+                        wins += constants.Result.Win
+                    else:
+                        result = constants.Result.Tie
+                        ties += constants.Result.Tie
+
+                print("Match #{} ended as a {}".format(i, result.name))
+
+    print("Win rate: {}".format(wins / 100))
+    print("There are {} won {} tie".format(wins, ties))
 
 
 if __name__ == '__main__':
