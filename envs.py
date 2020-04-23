@@ -40,11 +40,11 @@ class PommeEnvironment(Process):
             # for agent_id, agent_string in enumerate(default_config['Agents'].split(','))
         ]
 
-        if is_team:
-            self.training_agents = [(env_idx % 4), ((env_idx % 4) + 2) % 4]  # Agents id is [0, 2] or [1, 3]
-        else:
-            self.training_agents = env_idx % 4  # Setting for single agent (FFA)
-            agent_list[self.training_agents] = agents.RandomAgent()
+        # if is_team:
+        #     self.training_agents = [(env_idx % 4), ((env_idx % 4) + 2) % 4]  # Agents id is [0, 2] or [1, 3]
+        # else:
+        #     self.training_agents = env_idx % 4  # Setting for single agent (FFA)
+        #     agent_list[self.training_agents] = agents.RandomAgent()
 
         self.training_agents = 0
         self.env = pommerman.make(env_id, agent_list, game_state_file='long_line.json')

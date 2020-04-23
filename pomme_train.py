@@ -314,7 +314,7 @@ def main():
             episode_ties = 0
             episode_losses = 0
 
-        if global_step % (num_worker * num_step * 50) == 0:
+        if global_update % 10 == 0:
             print('Now Global Step :{}'.format(global_step))
             torch.save(agent.model.state_dict(), model_path)
             torch.save(agent.rnd.predictor.state_dict(), predictor_path)

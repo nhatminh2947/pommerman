@@ -33,9 +33,8 @@ def main():
     use_cuda = False
 
     gamma = float(default_config['Gamma'])
-    agent = RNDAgent
 
-    agent = agent(
+    agent = RNDAgent(
         N_CHANNELS,
         output_size,
         gamma
@@ -61,7 +60,8 @@ def main():
         done = False
         while not done:
             env.render()
-            action = agent.act(state)
+            action, _, _, _ = agent.get_action(state)
+            # action = agent.act(state)
 
             actions = env.act(obs)
             actions[0] = action
