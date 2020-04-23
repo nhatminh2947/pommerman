@@ -27,10 +27,15 @@ class PommeEnvironment(Process):
         print(env_id)
 
         agent_list = [
-            agents.SimpleAgent(),
-            agents.SimpleAgent(),
-            agents.SimpleAgent(),
-            agents.SimpleAgent(),
+            StaticAgent(),
+            StaticAgent(),
+            StaticAgent(),
+            StaticAgent()
+
+            # agents.SimpleAgent(),
+            # agents.SimpleAgent(),
+            # agents.SimpleAgent(),
+            # agents.SimpleAgent(),
             # helpers.make_agent_from_string(agent_string, agent_id)
             # for agent_id, agent_string in enumerate(default_config['Agents'].split(','))
         ]
@@ -41,7 +46,8 @@ class PommeEnvironment(Process):
             self.training_agents = env_idx % 4  # Setting for single agent (FFA)
             agent_list[self.training_agents] = agents.RandomAgent()
 
-        self.env = pommerman.make(env_id, agent_list)
+        self.training_agents = 0
+        self.env = pommerman.make(env_id, agent_list, game_state_file='long_line.json')
 
         self.is_render = is_render
         self.env_idx = env_idx

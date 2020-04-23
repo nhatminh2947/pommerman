@@ -276,7 +276,7 @@ def main():
             next_obs_batch=total_next_obs,
             old_policy=total_policy)
         # print('episode_rewards', episode_rewards)
-        if global_update % 10 == 0 or global_update == 1:
+        if global_update % 1 == 0 or global_update == 1:
             writer.add_scalar('loss/total_loss', loss, global_update)
             writer.add_scalar('loss/critic_ext_loss', critic_ext_loss, global_update)
             writer.add_scalar('loss/critic_int_loss', critic_int_loss, global_update)
@@ -290,6 +290,7 @@ def main():
             writer.add_scalar('reward/max_extrinsic_reward', 0 if not episode_rewards else np.max(episode_rewards),
                               global_update)
 
+            writer.add_scalar('data/global_update', global_update, global_update)
             writer.add_scalar('data/mean_steps_per_episode', episode_steps / episode_this_update, global_update)
             writer.add_scalar('data/mean_bomb_per_episode', count_bomb / episode_this_update,
                               global_update)
