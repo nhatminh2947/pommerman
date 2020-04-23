@@ -12,12 +12,12 @@ def main():
     env_id = default_config['EnvID']
 
     agent_list = [
-        agents.SimpleAgent(),
-        agents.SimpleAgent(),
-        agents.SimpleAgent(),
-        agents.SimpleAgent()
+        StaticAgent(),
+        StaticAgent(),
+        StaticAgent(),
+        StaticAgent()
     ]
-    env = pommerman.make(env_id, agent_list)
+    env = pommerman.make(env_id, agent_list, game_state_file='long_line.json')
     env.reset()
 
     input_size = 16
@@ -55,7 +55,7 @@ def main():
     wins = 0
     ties = 0
     print("Evaluating...")
-    for i in range(100):
+    for i in range(1):
         obs = env.reset()
         state = torch.from_numpy(utils.featurize(obs[0])).unsqueeze(0).float().numpy()
         done = False
