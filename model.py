@@ -97,34 +97,34 @@ class CnnActorCriticNetwork(nn.Module):
             nn.ReLU(),
             nn.Conv2d(
                 in_channels=64,
-                out_channels=64,
+                out_channels=128,
                 kernel_size=3,
                 stride=1),
             nn.ReLU(),
             Flatten(),
             linear(
-                9 * 9 * 64,
+                9 * 9 * 128,
                 256),
             nn.ReLU(),
             linear(
                 256,
-                448),
+                512),
             nn.ReLU()
         )
 
         self.actor = nn.Sequential(
-            linear(448, 448),
+            linear(512, 256),
             nn.ReLU(),
-            linear(448, output_size)
+            linear(256, output_size)
         )
 
         self.extra_layer = nn.Sequential(
-            linear(448, 448),
+            linear(512, 512),
             nn.ReLU()
         )
 
-        self.critic_ext = linear(448, 1)
-        self.critic_int = linear(448, 1)
+        self.critic_ext = linear(512, 1)
+        self.critic_int = linear(512, 1)
 
         for p in self.modules():
             if isinstance(p, nn.Conv2d):

@@ -131,6 +131,12 @@ def main():
     global_episode = 0
 
     episode_rewards = deque(maxlen=1000)
+    count_bomb = 0
+    episode_wins = 0
+    episode_ties = 0
+    episode_losses = 0
+    episode_steps = 0
+    episode_this_update = 1
 
     states = np.zeros([num_worker, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
 
@@ -163,6 +169,17 @@ def main():
 
                 if done:
                     episode_rewards.append(info['episode_reward'])
+                    count_bomb += info['num_bombs']
+                    episode_steps += info['steps']
+
+                    if info['episode_result'] == constants.Result.Win:
+                        episode_wins += 1
+                    elif info['episode_result'] == constants.Result.Tie:
+                        episode_ties += 1
+                    else:
+                        episode_losses += 1
+
+                    episode_this_update += 1
                     global_episode += 1
 
             rewards = np.hstack(rewards)
@@ -260,7 +277,8 @@ def main():
             y_batch=total_action,
             adv_batch=total_adv,
             next_obs_batch=total_next_obs,
-            old_policy=total_policy)
+            old_policy=total_policy
+        )
         # print('episode_rewards', episode_rewards)
         if global_update % logging_interval == 0 or global_step == 1:
             writer.add_scalar('loss/total_loss', loss, global_update)
@@ -271,13 +289,19 @@ def main():
             writer.add_scalar('loss/entropy', entropy, global_update)
 
             writer.add_scalar('reward/intrinsic_reward', np.sum(total_int_reward) / num_worker, global_update)
-            writer.add_scalar('reward/extrinsic_reward', np.mean(episode_rewards), global_update)
-            writer.add_scalar('reward/max_extrinsic_reward', np.max(episode_rewards), global_update)
+            writer.add_scalar('reward/mean_extrinsic_reward', 0 if not episode_rewards else np.mean(episode_rewards),
+                              global_update)
+            writer.add_scalar('reward/max_extrinsic_reward', 0 if not episode_rewards else np.max(episode_rewards),
+                              global_update)
 
-            writer.add_scalar('data/average_bomb_per_update',
-                              np.sum(total_action == constants.Action.Bomb.value) / num_worker,
+            writer.add_scalar('data/global_update', global_update, global_update)
+            writer.add_scalar('data/mean_steps_per_episode', episode_steps / episode_this_update, global_update)
+            writer.add_scalar('data/mean_bomb_per_episode', count_bomb / episode_this_update,
                               global_update)
             writer.add_scalar('data/max_prob', softmax(total_logging_policy).max(1).mean(), global_update)
+            writer.add_scalar('data/win_rate', episode_wins / episode_this_update, global_update)
+            writer.add_scalar('data/tie_rate', episode_ties / episode_this_update, global_update)
+            writer.add_scalar('data/loss_rate', episode_losses / episode_this_update, global_update)
 
             writer.add_scalar('value/intrinsic_value', np.mean(total_int_values), global_update)
             writer.add_scalar('value/extrinsic_value', np.mean(total_ext_values), global_update)
@@ -285,6 +309,14 @@ def main():
                               explained_variance(total_int_values[:, :-1].reshape([-1]), int_target), global_update)
             writer.add_scalar('value/ev_explained',
                               explained_variance(total_ext_values[:, :-1].reshape([-1]), ext_target), global_update)
+
+            episode_rewards.clear()
+            episode_steps = 0
+            count_bomb = 0
+            episode_this_update = 1
+            episode_wins = 0
+            episode_ties = 0
+            episode_losses = 0
 
         if global_update % 10 == 0:
             print('Now Global Step :{}'.format(global_step))

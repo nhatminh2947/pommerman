@@ -6,6 +6,7 @@ import torch.optim as optim
 from pommerman.agents import BaseAgent
 from pommerman.constants import Action
 from torch.distributions.categorical import Categorical
+from torchsummary import summary
 
 from model import CnnActorCriticNetwork, RNDModel
 from utils import global_grad_norm_
@@ -36,7 +37,8 @@ class RNDAgent(object):
             use_cuda=False,
             use_noisy_net=False):
         print(input_size)
-        self.model = CnnActorCriticNetwork(input_size, output_size, use_noisy_net)
+        self.model = CnnActorCriticNetwork(input_size, output_size, use_noisy_net).to("cuda")
+        # summary(self.model, input_size=(16, 11, 11))
         self.output_size = output_size
         self.input_size = input_size
         self.gamma = gamma
