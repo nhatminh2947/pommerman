@@ -2,17 +2,21 @@ from agents import *
 from envs import *
 from utils import *
 from gym.wrappers import Monitor
+from pommerman import agents
 
 N_CHANNELS = 16
 
 
 def main():
     print({section: dict(config[section]) for section in config.sections()})
-    env_id = 'Blank-PommeTeam-v0'
+    env_id = default_config['EnvID']
 
     agent_list = [
-        StaticAgent(),
-        StaticAgent()
+        agents.SimpleAgent(),
+        agents.SimpleAgent(),
+        agents.SimpleAgent(),
+        agents.SimpleAgent()
+
     ]
 
     env = pommerman.make(env_id, agent_list)

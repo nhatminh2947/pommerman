@@ -2,7 +2,7 @@ from collections import deque
 
 from torch.multiprocessing import Pipe
 from torch.utils.tensorboard import SummaryWriter
-
+from pommerman import agents
 from agents import *
 from envs import *
 from utils import *
@@ -12,18 +12,15 @@ N_CHANNELS = 16
 
 def main():
     print({section: dict(config[section]) for section in config.sections()})
-    train_method = default_config['TrainMethod']
     env_id = default_config['EnvID']
     env_type = default_config['EnvType']
 
     if env_type == 'pomme':
         agent_list = [
-            StaticAgent(),
-            StaticAgent(),
-            StaticAgent(),
-            StaticAgent()
-            # helpers.make_agent_from_string(agent_string, agent_id)
-            # for agent_id, agent_string in enumerate(default_config['Agents'].split(','))
+            agents.SimpleAgent(),
+            agents.SimpleAgent(),
+            agents.SimpleAgent(),
+            agents.SimpleAgent()
         ]
         env = pommerman.make(env_id, agent_list)
     else:
@@ -40,19 +37,16 @@ def main():
     is_load_model = default_config.getboolean('LoadModel')
     is_render = default_config.getboolean('Render')
 
-    # print(is_load_model)
-
     model_path = 'models/{}.model'.format(env_id)
     predictor_path = 'models/{}.pred'.format(env_id)
     target_path = 'models/{}.target'.format(env_id)
 
-    writer = SummaryWriter()
+    writer = SummaryWriter(filename_suffix='FFA_SimpleAgent')
 
     logging_interval = int(default_config['LoggingInterval'])
 
     use_cuda = default_config.getboolean('UseGPU')
     use_gae = default_config.getboolean('UseGAE')
-    use_noisy_net = default_config.getboolean('UseNoisyNet')
 
     json_dir = default_config['JsonDir']
 
@@ -60,6 +54,7 @@ def main():
     num_worker = int(default_config['NumEnv'])
 
     num_step = int(default_config['NumStep'])
+    max_timesteps = int(default_config['MaxTimesteps'])
 
     ppo_eps = float(default_config['PPOEps'])
     epoch = int(default_config['Epoch'])
@@ -144,7 +139,7 @@ def main():
         obs = work.reset()
         states[i, :, :, :] = featurize(obs[0])
 
-    while True:
+    while global_step < max_timesteps:
         total_state, total_reward, total_done, total_next_state, total_action, total_int_reward, total_next_obs, \
         total_ext_values, total_int_values, total_policy, total_policy_np = \
             [], [], [], [], [], [], [], [], [], [], []
@@ -264,10 +259,6 @@ def main():
         # Step 4. update obs normalize param
         obs_rms.update(total_next_obs)
         # -----------------------------------------------
-        # print(np.shape(total_int_values[:, :-1]))
-        # print(np.shape(int_target))
-        # print(np.shape(total_ext_values))
-        # print(np.shape(ext_target))
 
         # Step 5. Training!
         loss, critic_ext_loss, critic_int_loss, actor_loss, forward_loss, entropy = agent.train_model(
@@ -279,8 +270,8 @@ def main():
             next_obs_batch=total_next_obs,
             old_policy=total_policy
         )
-        # print('episode_rewards', episode_rewards)
-        if global_update % logging_interval == 0 or global_step == 1:
+
+        if global_update % logging_interval == 0 or global_update == 1:
             writer.add_scalar('loss/total_loss', loss, global_update)
             writer.add_scalar('loss/critic_ext_loss', critic_ext_loss, global_update)
             writer.add_scalar('loss/critic_int_loss', critic_int_loss, global_update)
