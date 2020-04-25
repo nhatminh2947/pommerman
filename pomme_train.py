@@ -55,6 +55,7 @@ def main():
 
     num_step = int(default_config['NumStep'])
     max_timesteps = int(default_config['MaxTimesteps'])
+    max_updates = int(default_config['MaxUpdates'])
 
     ppo_eps = float(default_config['PPOEps'])
     epoch = int(default_config['Epoch'])
@@ -131,7 +132,7 @@ def main():
     episode_ties = 0
     episode_losses = 0
     episode_steps = 0
-    episode_this_update = 1
+    episode_this_update = 0
 
     states = np.zeros([num_worker, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
 
@@ -139,7 +140,7 @@ def main():
         obs = work.reset()
         states[i, :, :, :] = featurize(obs[0])
 
-    while global_step < max_timesteps:
+    while global_update < max_updates:
         total_state, total_reward, total_done, total_next_state, total_action, total_int_reward, total_next_obs, \
         total_ext_values, total_int_values, total_policy, total_policy_np = \
             [], [], [], [], [], [], [], [], [], [], []
@@ -286,6 +287,7 @@ def main():
                               global_update)
 
             writer.add_scalar('data/global_update', global_update, global_update)
+            writer.add_scalar('data/episode_this_update', episode_this_update, global_update)
             writer.add_scalar('data/mean_steps_per_episode', episode_steps / episode_this_update, global_update)
             writer.add_scalar('data/mean_bomb_per_episode', count_bomb / episode_this_update,
                               global_update)
@@ -304,7 +306,7 @@ def main():
             episode_rewards.clear()
             episode_steps = 0
             count_bomb = 0
-            episode_this_update = 1
+            episode_this_update = 0
             episode_wins = 0
             episode_ties = 0
             episode_losses = 0

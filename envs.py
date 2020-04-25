@@ -1,5 +1,5 @@
 import pommerman
-from pommerman import constants
+from pommerman import constants, agents
 from torch.multiprocessing import Process
 
 import utils
@@ -27,19 +27,19 @@ class PommeEnvironment(Process):
         print(env_id)
 
         agent_list = [
-            StaticAgent(),
-            StaticAgent()
+            agents.SimpleAgent(),
+            agents.SimpleAgent(),
+            agents.SimpleAgent(),
+            agents.SimpleAgent()
             # helpers.make_agent_from_string(agent_string, agent_id)
             # for agent_id, agent_string in enumerate(default_config['Agents'].split(','))
         ]
 
-        # if is_team:
-        #     self.training_agents = [(env_idx % 4), ((env_idx % 4) + 2) % 4]  # Agents id is [0, 2] or [1, 3]
-        # else:
-        #     self.training_agents = env_idx % 4  # Setting for single agent (FFA)
-        #     agent_list[self.training_agents] = agents.RandomAgent()
-
-        self.training_agents = 0
+        if is_team:
+            self.training_agents = [(env_idx % 4), ((env_idx % 4) + 2) % 4]  # Agents id is [0, 2] or [1, 3]
+        else:
+            self.training_agents = env_idx % 4  # Setting for single agent (FFA)
+            # agent_list[self.training_agents] = agents.RandomAgent()
 
         self.env = pommerman.make(env_id, agent_list)
 
@@ -76,9 +76,11 @@ class PommeEnvironment(Process):
             if agent_action == constants.Action.Bomb.value:
                 self.num_bombs += 1
 
-            if self.alive:
-                self.alive = (self.training_agents + constants.Item.Agent0.value) in observations[self.training_agents][
-                    'alive']
+            self.alive = (self.training_agents + constants.Item.Agent0.value) in observations[self.training_agents][
+                'alive']
+
+            if not self.alive:
+                done = True
 
             if done:
                 if not self.alive:

@@ -16,7 +16,6 @@ def main():
         agents.SimpleAgent(),
         agents.SimpleAgent(),
         agents.SimpleAgent()
-
     ]
 
     env = pommerman.make(env_id, agent_list)
