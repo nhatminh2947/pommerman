@@ -2,6 +2,7 @@ from agents import *
 from envs import *
 from utils import *
 from gym.wrappers import Monitor
+from pommerman import agents
 
 N_CHANNELS = 16
 
@@ -11,12 +12,13 @@ def main():
     env_id = default_config['EnvID']
 
     agent_list = [
-        StaticAgent(),
-        StaticAgent(),
-        StaticAgent(),
-        StaticAgent()
+        agents.SimpleAgent(),
+        agents.SimpleAgent(),
+        agents.SimpleAgent(),
+        agents.SimpleAgent()
     ]
-    env = pommerman.make(env_id, agent_list, 'a_line.json')
+
+    env = pommerman.make(env_id, agent_list)
     env.reset()
 
     input_size = 16
@@ -24,27 +26,11 @@ def main():
     print('output_size:', output_size)
     env.close()
 
+    use_cuda = True
     is_render = True
     model_path = 'models/{}.model'.format(env_id)
     predictor_path = 'models/{}.pred'.format(env_id)
     target_path = 'models/{}.target'.format(env_id)
-
-    use_cuda = False
-    use_gae = default_config.getboolean('UseGAE')
-    use_noisy_net = default_config.getboolean('UseNoisyNet')
-
-    lam = float(default_config['Lambda'])
-    num_worker = 1
-
-    num_step = int(default_config['NumStep'])
-
-    ppo_eps = float(default_config['PPOEps'])
-    epoch = int(default_config['Epoch'])
-    mini_batch = int(default_config['MiniBatch'])
-    batch_size = int(num_step * num_worker / mini_batch)
-    learning_rate = float(default_config['LearningRate'])
-    entropy_coef = float(default_config['Entropy'])
-    clip_grad_norm = float(default_config['ClipGradNorm'])
 
     gamma = float(default_config['Gamma'])
     agent = RNDAgent
@@ -65,22 +51,34 @@ def main():
         agent.rnd.predictor.load_state_dict(torch.load(predictor_path, map_location='cpu'))
         agent.rnd.target.load_state_dict(torch.load(target_path, map_location='cpu'))
     print('End load...')
+    wins = 0
+    losses = 0
+    tie = 0
 
-    obs = env.reset()
-    state = torch.from_numpy(utils.featurize(obs[0])).unsqueeze(0).float().numpy()
-
-    while True:
-        env.render()
-        action = agent.get_action(state)
-
-        actions = env.act(obs)
-        actions[0] = action[0]
-        obs, reward, done, info = env.step(actions)
+    for i in range(100):
+        obs = env.reset()
         state = torch.from_numpy(utils.featurize(obs[0])).unsqueeze(0).float().numpy()
+        done = False
+        while not done:
+            env.render()
+            action = agent.act(state)
 
-        if done:
-            print('info: ', info)
-            break
+            actions = env.act(obs)
+            actions[0] = action
+            obs, reward, done, info = env.step(actions)
+            state = torch.from_numpy(utils.featurize(obs[0])).unsqueeze(0).float().numpy()
+
+            if done:
+                print('info: ', info)
+                if info['result'] == constants.Result.Win:
+                    if 0 in info['winners']:
+                        wins += 1
+                    else:
+                        losses += 1
+                else:
+                    tie += 1
+
+    print('winrate: {}'.format(wins / 100))
 
 
 if __name__ == '__main__':
