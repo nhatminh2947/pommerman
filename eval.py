@@ -60,7 +60,8 @@ def main():
         state = torch.from_numpy(utils.featurize(obs[0])).unsqueeze(0).float().numpy()
         done = False
         while not done:
-            env.render()
+            if is_render:
+                env.render()
             action = agent.act(state)
 
             actions = env.act(obs)
@@ -68,17 +69,26 @@ def main():
             obs, reward, done, info = env.step(actions)
             state = torch.from_numpy(utils.featurize(obs[0])).unsqueeze(0).float().numpy()
 
+            alive = constants.Item.Agent0.value in obs[0]['alive']
+
+            if not alive:
+                done = True
+
             if done:
-                print('info: ', info)
-                if info['result'] == constants.Result.Win:
-                    if 0 in info['winners']:
+                if not alive:
+                    print("Match end up with a loss")
+                    losses += 1
+                else:
+                    if info['result'] == constants.Result.Win:
+                        print("Match end up with a win")
                         wins += 1
                     else:
-                        losses += 1
-                else:
-                    tie += 1
+                        print("Match end up with a tie")
+                        tie += 1
 
-    print('winrate: {}'.format(wins / 100))
+    print('winrate: {}'.format(wins / 1000))
+    print('losses: {}'.format(losses / 1000))
+    print('tie: {}'.format(tie / 1000))
 
 
 if __name__ == '__main__':

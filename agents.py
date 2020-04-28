@@ -64,8 +64,11 @@ class RNDAgent(object):
         state = state.float()
         policy, value_ext, value_int = self.model(state)
         action_prob = F.softmax(policy, dim=-1).data.cpu().numpy()
-        print('action_prob:', action_prob)
         action = np.argmax(action_prob)
+        # print('action_prob:', action_prob)
+        # print('actions: ', actions)
+        # print('value_ext: ', value_ext)
+        # print('policy: ', policy)
         return action
 
     def get_action(self, states):
