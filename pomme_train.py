@@ -106,19 +106,19 @@ def main():
             agent.rnd.target.load_state_dict(torch.load(target_path, map_location='cpu'))
         print('load finished!')
 
-    works = []
+    workers = []
     parent_conns = []
     child_conns = []
     for idx in range(num_worker):
         parent_conn, child_conn = Pipe()
-        work = env_type(env_id=env_id,
+        worker = env_type(env_id=env_id,
                         agent_list=default_config['Agents'],
                         is_render=is_render,
                         env_idx=idx,
                         child_conn=child_conn,
                         json_dir=json_dir)
-        work.start()
-        works.append(work)
+        worker.start()
+        workers.append(worker)
         parent_conns.append(parent_conn)
         child_conns.append(child_conn)
 
@@ -136,9 +136,9 @@ def main():
 
     states = np.zeros([num_worker, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
 
-    for i, work in enumerate(works):
-        obs = work.reset()
-        states[i, :, :, :] = featurize(obs[0])
+    for i, worker in enumerate(workers):
+        obs = worker.reset()
+        states[i, :, :, :] = obs
 
     while global_update < max_updates:
         total_state, total_reward, total_done, total_next_state, total_action, total_int_reward, total_next_obs, \

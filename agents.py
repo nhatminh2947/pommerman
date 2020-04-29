@@ -36,7 +36,6 @@ class RNDAgent(object):
             use_gae=True,
             use_cuda=False,
             use_noisy_net=False):
-        print(input_size)
         self.model = CnnActorCriticNetwork(input_size, output_size, use_noisy_net).to("cuda")
         # summary(self.model, input_size=(16, 11, 11))
         self.output_size = output_size
@@ -56,6 +55,7 @@ class RNDAgent(object):
         self.optimizer = optim.Adam(list(self.model.parameters()) + list(self.rnd.predictor.parameters()),
                                     lr=learning_rate)
         self.rnd = self.rnd.to(self.device)
+        self.n_alive = 3
 
         self.model = self.model.to(self.device)
 

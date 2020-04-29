@@ -8,23 +8,19 @@ N_CHANNELS = 16
 
 
 def main():
-    print({section: dict(config[section]) for section in config.sections()})
+    n_episodes = 100
     env_id = default_config['EnvID']
 
     agent_list = [
         agents.SimpleAgent(),
         agents.SimpleAgent(),
         agents.SimpleAgent(),
-        agents.SimpleAgent()
+        agents.SimpleAgent(),
     ]
 
     env = pommerman.make(env_id, agent_list)
     env.reset()
-
-    input_size = 16
     output_size = env.action_space.n  # 2
-    print('output_size:', output_size)
-    env.close()
 
     use_cuda = True
     is_render = True
@@ -33,9 +29,8 @@ def main():
     target_path = 'models/{}.target'.format(env_id)
 
     gamma = float(default_config['Gamma'])
-    agent = RNDAgent
 
-    agent = agent(
+    agent = RNDAgent(
         N_CHANNELS,
         output_size,
         gamma
@@ -51,44 +46,38 @@ def main():
         agent.rnd.predictor.load_state_dict(torch.load(predictor_path, map_location='cpu'))
         agent.rnd.target.load_state_dict(torch.load(target_path, map_location='cpu'))
     print('End load...')
+
     wins = 0
     losses = 0
-    tie = 0
+    ties = 0
 
-    for i in range(100):
+    env = PommeWrapper(env, training_agents=0)
+
+    for i in range(n_episodes):
         obs = env.reset()
-        state = torch.from_numpy(utils.featurize(obs[0])).unsqueeze(0).float().numpy()
         done = False
         while not done:
             if is_render:
                 env.render()
-            action = agent.act(state)
 
-            actions = env.act(obs)
-            actions[0] = action
-            obs, reward, done, info = env.step(actions)
-            state = torch.from_numpy(utils.featurize(obs[0])).unsqueeze(0).float().numpy()
+            action = agent.act(torch.from_numpy(obs).unsqueeze(0).float().numpy())
+            raw_obs, obs, reward, done, info = env.step(action)
 
-            alive = constants.Item.Agent0.value in obs[0]['alive']
-
-            if not alive:
-                done = True
+            print('episode_reward', info['episode_reward'])
 
             if done:
-                if not alive:
-                    print("Match end up with a loss")
+                if info['episode_result'] == constants.Result.Win:
+                    wins += 1
+                elif info['episode_result'] == constants.Result.Loss:
                     losses += 1
-                else:
-                    if info['result'] == constants.Result.Win:
-                        print("Match end up with a win")
-                        wins += 1
-                    else:
-                        print("Match end up with a tie")
-                        tie += 1
+                elif info['episode_result'] == constants.Result.Tie:
+                    ties += 1
 
-    print('winrate: {}'.format(wins / 1000))
-    print('losses: {}'.format(losses / 1000))
-    print('tie: {}'.format(tie / 1000))
+                print('Result: {} Reward: {}'.format(info['episode_result'], info['episode_reward']))
+
+    print('winrate: {}'.format(wins / n_episodes))
+    print('losses: {}'.format(losses / n_episodes))
+    print('tie: {}'.format(ties / n_episodes))
 
 
 if __name__ == '__main__':
