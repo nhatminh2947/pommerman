@@ -63,8 +63,6 @@ def main():
             action = agent.act(torch.from_numpy(obs).unsqueeze(0).float().numpy())
             raw_obs, obs, reward, done, info = env.step(action)
 
-            print('episode_reward', info['episode_reward'])
-
             if done:
                 if info['episode_result'] == constants.Result.Win:
                     wins += 1

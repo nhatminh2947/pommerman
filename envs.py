@@ -44,13 +44,13 @@ class PommeWrapper(gym.Wrapper):
 
         if utility.position_is_powerup(prev_board, new_obs['position']):
             if constants.Item(prev_board[new_obs['position']]) == constants.Item.IncrRange:
-                reward += 0.1
+                reward += 0.01
                 self.ability.blast_strength += 1
             elif constants.Item(prev_board[new_obs['position']]) == constants.Item.ExtraBomb:
-                reward += 0.1
+                reward += 0.01
                 self.ability.ammo += 1
             elif not self.ability.can_kick and constants.Item(prev_board[new_obs['position']]) == constants.Item.Kick:
-                reward += 0.5
+                reward += 0.05
                 self.ability.can_kick = True
 
         for enemy in enemies:
