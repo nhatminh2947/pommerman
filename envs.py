@@ -202,12 +202,12 @@ class PommeEnvironment(Process):
             raw_obs, obs, reward, done, info = self.env.step(agent_action)
 
             if done:
-                print(
-                    "Env #{:>2} Episode #{:6} Steps: {:3} Reward: {: 4.4f}\tResult: {}".format(self.env_idx,
-                                                                                               self.episode,
-                                                                                               info['steps'],
-                                                                                               info['episode_reward'],
-                                                                                               info['episode_result']))
+                # print(
+                #     "Env #{:>2} Episode #{:6} Steps: {:3} Reward: {: 4.4f}\tResult: {}".format(self.env_idx,
+                #                                                                                self.episode,
+                #                                                                                info['steps'],
+                #                                                                                info['episode_reward'],
+                #                                                                                info['episode_result']))
                 obs = self.reset()
 
             self.child_conn.send([obs, reward, done, info])

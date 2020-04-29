@@ -37,7 +37,7 @@ class RNDAgent(object):
             use_cuda=False,
             use_noisy_net=False):
         self.model = CnnActorCriticNetwork(input_size, output_size, use_noisy_net).to("cuda")
-        # summary(self.model, input_size=(16, 11, 11))
+
         self.output_size = output_size
         self.input_size = input_size
         self.gamma = gamma
