@@ -3,7 +3,7 @@ from envs import *
 from utils import *
 from gym.wrappers import Monitor
 from pommerman import agents
-
+import os
 N_CHANNELS = 16
 
 
@@ -24,9 +24,9 @@ def main():
 
     use_cuda = True
     is_render = True
-    model_path = 'models/{}.model'.format(env_id)
-    predictor_path = 'models/{}.pred'.format(env_id)
-    target_path = 'models/{}.target'.format(env_id)
+    model_path = 'models/FFA_SimpleAgent/{}.model'.format(env_id)
+    predictor_path = 'models/FFA_SimpleAgent/{}.pred'.format(env_id)
+    target_path = 'models/FFA_SimpleAgent/{}.target'.format(env_id)
 
     gamma = float(default_config['Gamma'])
 
@@ -58,7 +58,10 @@ def main():
         done = False
         while not done:
             if is_render:
-                env.render()
+                dir = './pngs/{}'.format(i)
+                if not os.path.exists(dir):
+                    os.mkdir(dir)
+                env.render(record_pngs_dir=dir)
 
             action = agent.act(torch.from_numpy(obs).unsqueeze(0).float().numpy())
             raw_obs, obs, reward, done, info = env.step(action)
