@@ -107,7 +107,6 @@ def main():
     for idx in range(num_worker):
         parent_conn, child_conn = Pipe()
         worker = env_type(env_id=env_id,
-                          agent_list=default_config['Agents'],
                           is_render=is_render,
                           env_idx=idx,
                           child_conn=child_conn,
@@ -148,7 +147,7 @@ def main():
 
         # Step 1. n-step rollout
         for _ in range(num_step):
-            actions, value_ext, value_int, policy = agent.get_action(states)  # Normalize state?
+            actions, value_ext, value_int, policy = agent.get_action(states)
 
             for parent_conn, action in zip(parent_conns, actions):
                 parent_conn.send(action)

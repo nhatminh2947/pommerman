@@ -25,22 +25,18 @@ class PommeWrapper(gym.Wrapper):
     def __init__(self, env, training_agents):
         super().__init__(env)
         self.env = env
-        self.training_agents = training_agents
-        self.steps = 0
-        self.episode_reward = 0
-        self.num_bombs = 0
-        self.alive_agents = [0, 1, 2, 3]
+        self.steps = np.zeros(shape=4)
+        self.episode_reward = np.zeros(shape=4)
+        self.num_bombs = np.zeros(shape=4)
+        self.alive_agents = np.arange(4)
 
         self.ability = Ability()
         self.env.reset()
 
-    def reward_shaping(self, new_obs, prev_board, done, info):
+    def reward_shaping(self, new_obs, prev_board):
         reward = 0
         current_alive_agents = np.asarray(new_obs['alive']) - constants.Item.Agent0.value
         enemies = [enemy.value - constants.Item.Agent0.value for enemy in new_obs['enemies']]
-
-        if self.training_agents not in current_alive_agents:
-            return -1
 
         if utility.position_is_powerup(prev_board, new_obs['position']):
             if constants.Item(prev_board[new_obs['position']]) == constants.Item.IncrRange:
@@ -60,22 +56,18 @@ class PommeWrapper(gym.Wrapper):
 
         return reward
 
-    def step(self, action):
+    def step(self, actions):
         obs = self.env.get_observations()
-        actions = self.env.act(self.env.get_observations())
-        actions[self.training_agents] = action
         new_obs, reward, done, info = self.env.step(actions)
 
-        if action == constants.Action.Bomb.value:
-            self.num_bombs += 1
+        for i, action in enumerate(actions):
+            if action == constants.Action.Bomb.value:
+                self.num_bombs[i] += 1
 
-        reward = self.reward_shaping(new_obs[self.training_agents], obs[self.training_agents]['board'], done, info)
-        self.episode_reward += reward
+        rewards = [self.reward_shaping(new_obs[i], obs[i]['board']) for i in range(4)]
+
+        self.episode_reward = np.add(self.episode_reward, rewards)
         self.steps += 1
-
-        current_alive_agents = np.asarray(new_obs[self.training_agents]['alive']) - constants.Item.Agent0.value
-        if self.training_agents not in current_alive_agents:
-            done = True
 
         if done:
             if self.training_agents not in current_alive_agents:
@@ -87,13 +79,13 @@ class PommeWrapper(gym.Wrapper):
 
             info['episode_reward'] = self.episode_reward
             info['episode_result'] = result
-            info['num_bombs'] = self.num_bombs
+            # info['num_bombs'] = self.num_bombs
             info['steps'] = self.steps
             info['ammo'] = self.ability.ammo
             info['blast_strength'] = self.ability.blast_strength
             info['can_kick'] = self.ability.can_kick
 
-        return new_obs, self.observation(new_obs[self.training_agents]), reward, done, info
+        return new_obs, [self.observation(new_obs[i]) for i in range(4)], rewards, done, info
 
     def observation(self, obs):
         id = 0
@@ -108,8 +100,6 @@ class PommeWrapper(gym.Wrapper):
                         constants.Item.Agent3,
                         constants.Item.AgentDummy]:
                 continue
-            # print("item:", item)
-            # print("board:", obs["board"])
 
             features[id, :, :][obs["board"] == item.value] = 1
             id += 1
@@ -141,7 +131,7 @@ class PommeWrapper(gym.Wrapper):
 
     def reset(self):
         self.steps = 0
-        self.episode_reward = 0
+        self.episode_reward = [0, 0, 0, 0]
         self.alive_agents = [0, 1, 2, 3]
         self.num_bombs = 0
         self.ability.reset()
@@ -154,7 +144,6 @@ class PommeEnvironment(Process):
     def __init__(
             self,
             env_id,
-            agent_list,
             is_render,
             env_idx,
             child_conn,
@@ -165,17 +154,16 @@ class PommeEnvironment(Process):
         print(env_id)
 
         agent_list = [
-            agents.SimpleAgent(),
-            agents.SimpleAgent(),
-            agents.SimpleAgent(),
-            agents.SimpleAgent()
+            agents.BaseAgent(),
+            agents.BaseAgent(),
+            agents.BaseAgent(),
+            agents.BaseAgent()
         ]
 
         if is_team:
             self.training_agents = [(env_idx % 4), ((env_idx % 4) + 2) % 4]  # Agents id is [0, 2] or [1, 3]
         else:
             self.training_agents = env_idx % 4  # Setting for single agent (FFA)
-            agent_list[self.training_agents] = agents.RandomAgent()
 
         self.env = pommerman.make(env_id, agent_list)
         self.env = PommeWrapper(self.env, self.training_agents)
@@ -202,12 +190,6 @@ class PommeEnvironment(Process):
             raw_obs, obs, reward, done, info = self.env.step(agent_action)
 
             if done:
-                # print(
-                #     "Env #{:>2} Episode #{:6} Steps: {:3} Reward: {: 4.4f}\tResult: {}".format(self.env_idx,
-                #                                                                                self.episode,
-                #                                                                                info['steps'],
-                #                                                                                info['episode_reward'],
-                #                                                                                info['episode_result']))
                 obs = self.reset()
 
             self.child_conn.send([obs, reward, done, info])
