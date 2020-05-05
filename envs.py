@@ -34,7 +34,7 @@ class PommeWrapper(gym.Wrapper):
         self.ability = Ability()
         self.env.reset()
 
-    def reward_shaping(self, new_obs, prev_board, done, info):
+    def reward_shaping(self, new_obs, prev_board):
         reward = 0
         current_alive_agents = np.asarray(new_obs['alive']) - constants.Item.Agent0.value
         enemies = [enemy.value - constants.Item.Agent0.value for enemy in new_obs['enemies']]
@@ -44,13 +44,13 @@ class PommeWrapper(gym.Wrapper):
 
         if utility.position_is_powerup(prev_board, new_obs['position']):
             if constants.Item(prev_board[new_obs['position']]) == constants.Item.IncrRange:
-                reward += 0.1
+                reward += 0.01
                 self.ability.blast_strength += 1
             elif constants.Item(prev_board[new_obs['position']]) == constants.Item.ExtraBomb:
-                reward += 0.1
+                reward += 0.01
                 self.ability.ammo += 1
             elif not self.ability.can_kick and constants.Item(prev_board[new_obs['position']]) == constants.Item.Kick:
-                reward += 0.5
+                reward += 0.05
                 self.ability.can_kick = True
 
         for enemy in enemies:
@@ -69,7 +69,7 @@ class PommeWrapper(gym.Wrapper):
         if action == constants.Action.Bomb.value:
             self.num_bombs += 1
 
-        reward = self.reward_shaping(new_obs[self.training_agents], obs[self.training_agents]['board'], done, info)
+        reward = self.reward_shaping(new_obs[self.training_agents], obs[self.training_agents]['board'])
         self.episode_reward += reward
         self.steps += 1
 
@@ -95,7 +95,8 @@ class PommeWrapper(gym.Wrapper):
 
         return new_obs, self.observation(new_obs[self.training_agents]), reward, done, info
 
-    def observation(self, obs):
+    @staticmethod
+    def observation(obs):
         id = 0
         features = np.zeros(shape=(16, 11, 11))
         # print(obs)
@@ -202,12 +203,12 @@ class PommeEnvironment(Process):
             raw_obs, obs, reward, done, info = self.env.step(agent_action)
 
             if done:
-                print(
-                    "Env #{:>2} Episode #{:6} Steps: {:3} Reward: {: 4.4f}\tResult: {}".format(self.env_idx,
-                                                                                               self.episode,
-                                                                                               info['steps'],
-                                                                                               info['episode_reward'],
-                                                                                               info['episode_result']))
+                # print(
+                #     "Env #{:>2} Episode #{:6} Steps: {:3} Reward: {: 4.4f}\tResult: {}".format(self.env_idx,
+                #                                                                                self.episode,
+                #                                                                                info['steps'],
+                #                                                                                info['episode_reward'],
+                #                                                                                info['episode_result']))
                 obs = self.reset()
 
             self.child_conn.send([obs, reward, done, info])

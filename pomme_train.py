@@ -11,7 +11,6 @@ N_CHANNELS = 16
 
 
 def main():
-    print({section: dict(config[section]) for section in config.sections()})
     env_id = default_config['EnvID']
     env_type = default_config['EnvType']
 
@@ -26,20 +25,16 @@ def main():
     else:
         raise NotImplementedError
 
-    input_size = env.observation_space.shape
     output_size = env.action_space.n
-
-    print('observation space:', input_size)
-    print('action space:', output_size)
 
     env.close()
 
     is_load_model = default_config.getboolean('LoadModel')
     is_render = default_config.getboolean('Render')
 
-    model_path = 'models/{}.model'.format(env_id)
-    predictor_path = 'models/{}.pred'.format(env_id)
-    target_path = 'models/{}.target'.format(env_id)
+    model_path = 'models/FFA_SimpleAgent_RS/{}.model'.format(env_id)
+    predictor_path = 'models/FFA_SimpleAgent_RS/{}.pred'.format(env_id)
+    target_path = 'models/FFA_SimpleAgent_RS/{}.target'.format(env_id)
 
     writer = SummaryWriter(filename_suffix='FFA_SimpleAgent')
 
@@ -112,11 +107,11 @@ def main():
     for idx in range(num_worker):
         parent_conn, child_conn = Pipe()
         worker = env_type(env_id=env_id,
-                        agent_list=default_config['Agents'],
-                        is_render=is_render,
-                        env_idx=idx,
-                        child_conn=child_conn,
-                        json_dir=json_dir)
+                          agent_list=default_config['Agents'],
+                          is_render=is_render,
+                          env_idx=idx,
+                          child_conn=child_conn,
+                          json_dir=json_dir)
         worker.start()
         workers.append(worker)
         parent_conns.append(parent_conn)
@@ -133,6 +128,9 @@ def main():
     episode_losses = 0
     episode_steps = 0
     episode_this_update = 0
+    episode_agent_ammo = 0
+    episode_agent_blast_strength = 0
+    episode_agent_can_kick = 0
 
     states = np.zeros([num_worker, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
 
@@ -167,6 +165,9 @@ def main():
                     episode_rewards.append(info['episode_reward'])
                     count_bomb += info['num_bombs']
                     episode_steps += info['steps']
+                    episode_agent_ammo += info['ammo']
+                    episode_agent_blast_strength += info['blast_strength']
+                    episode_agent_can_kick += info['can_kick']
 
                     if info['episode_result'] == constants.Result.Win:
                         episode_wins += 1
@@ -195,11 +196,9 @@ def main():
             total_ext_values.append(value_ext)
             total_int_values.append(value_int)
             total_policy.append(policy)
-            total_policy_np.append(policy.cpu().numpy())
 
             states = next_obs[:, :, :, :]
 
-        # print('states.shape:', states.shape)
         # calculate last next value
         _, value_ext, value_int, _ = agent.get_action(states)  # Normalize state?
         total_ext_values.append(value_ext)
@@ -209,15 +208,11 @@ def main():
             [-1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
         total_reward = np.stack(total_reward).transpose()
         total_action = np.stack(total_action).transpose().reshape([-1])
-        # print(total_action)
-        # print(total_action.shape)
         total_done = np.stack(total_done).transpose()
         total_next_obs = np.stack(total_next_obs).transpose([1, 0, 2, 3, 4]).reshape(
             [-1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
-        # print('total_ext_values.shape', np.shape(total_ext_values))
         total_ext_values = np.squeeze(total_ext_values, axis=-1).transpose()
         total_int_values = np.squeeze(total_int_values, axis=-1).transpose()
-        total_logging_policy = np.vstack(total_policy_np)
 
         # Step 2. calculate intrinsic reward
         # running mean intrinsic reward
@@ -229,9 +224,6 @@ def main():
 
         # normalize intrinsic reward
         total_int_reward /= np.sqrt(reward_rms.var)
-
-        # print('total_int_reward', total_int_reward)
-        # print('total_int_values', total_int_values)
 
         # Step 3. make target and advantage
         # extrinsic reward calculate
@@ -250,8 +242,6 @@ def main():
                                               int_gamma,
                                               num_step,
                                               num_worker)
-
-        # print('int_target: ', int_target)
 
         # add ext adv and int adv
         total_adv = int_adv * int_coef + ext_adv * ext_coef
@@ -291,10 +281,13 @@ def main():
             writer.add_scalar('data/mean_steps_per_episode', episode_steps / episode_this_update, global_update)
             writer.add_scalar('data/mean_bomb_per_episode', count_bomb / episode_this_update,
                               global_update)
-            writer.add_scalar('data/max_prob', softmax(total_logging_policy).max(1).mean(), global_update)
+
             writer.add_scalar('data/win_rate', episode_wins / episode_this_update, global_update)
             writer.add_scalar('data/tie_rate', episode_ties / episode_this_update, global_update)
             writer.add_scalar('data/loss_rate', episode_losses / episode_this_update, global_update)
+            writer.add_scalar('data/ammo', episode_agent_ammo / episode_this_update, global_update)
+            writer.add_scalar('data/blast_strength', episode_agent_blast_strength / episode_this_update, global_update)
+            writer.add_scalar('data/can_kick', episode_agent_can_kick / episode_this_update, global_update)
 
             writer.add_scalar('value/intrinsic_value', np.mean(total_int_values), global_update)
             writer.add_scalar('value/extrinsic_value', np.mean(total_ext_values), global_update)
@@ -303,6 +296,13 @@ def main():
             writer.add_scalar('value/ev_explained',
                               explained_variance(total_ext_values[:, :-1].reshape([-1]), ext_target), global_update)
 
+            print('Update: {} GlobalStep: {} #Episodes: {:3} AvgReward: {: .3f} WinRate: {:.3f}'.format(
+                global_update,
+                global_step,
+                episode_this_update,
+                np.mean(total_ext_values),
+                episode_wins / episode_this_update))
+
             episode_rewards.clear()
             episode_steps = 0
             count_bomb = 0
@@ -310,9 +310,10 @@ def main():
             episode_wins = 0
             episode_ties = 0
             episode_losses = 0
+            episode_agent_ammo = 0
+            episode_agent_blast_strength = 0
+            episode_agent_can_kick = 0
 
-        if global_update % 10 == 0:
-            print('Now Global Step :{}'.format(global_step))
             torch.save(agent.model.state_dict(), model_path)
             torch.save(agent.rnd.predictor.state_dict(), predictor_path)
             torch.save(agent.rnd.target.state_dict(), target_path)
