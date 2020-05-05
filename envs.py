@@ -34,7 +34,7 @@ class PommeWrapper(gym.Wrapper):
         self.ability = Ability()
         self.env.reset()
 
-    def reward_shaping(self, new_obs, prev_board, done, info):
+    def reward_shaping(self, new_obs, prev_board):
         reward = 0
         current_alive_agents = np.asarray(new_obs['alive']) - constants.Item.Agent0.value
         enemies = [enemy.value - constants.Item.Agent0.value for enemy in new_obs['enemies']]
@@ -69,7 +69,7 @@ class PommeWrapper(gym.Wrapper):
         if action == constants.Action.Bomb.value:
             self.num_bombs += 1
 
-        reward = self.reward_shaping(new_obs[self.training_agents], obs[self.training_agents]['board'], done, info)
+        reward = self.reward_shaping(new_obs[self.training_agents], obs[self.training_agents]['board'])
         self.episode_reward += reward
         self.steps += 1
 
@@ -95,7 +95,8 @@ class PommeWrapper(gym.Wrapper):
 
         return new_obs, self.observation(new_obs[self.training_agents]), reward, done, info
 
-    def observation(self, obs):
+    @staticmethod
+    def observation(obs):
         id = 0
         features = np.zeros(shape=(16, 11, 11))
         # print(obs)

@@ -32,9 +32,9 @@ def main():
     is_load_model = default_config.getboolean('LoadModel')
     is_render = default_config.getboolean('Render')
 
-    model_path = 'models/{}.model'.format(env_id)
-    predictor_path = 'models/{}.pred'.format(env_id)
-    target_path = 'models/{}.target'.format(env_id)
+    model_path = 'models/FFA_SimpleAgent_RS/{}.model'.format(env_id)
+    predictor_path = 'models/FFA_SimpleAgent_RS/{}.pred'.format(env_id)
+    target_path = 'models/FFA_SimpleAgent_RS/{}.target'.format(env_id)
 
     writer = SummaryWriter(filename_suffix='FFA_SimpleAgent')
 
