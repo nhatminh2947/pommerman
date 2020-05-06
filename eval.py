@@ -24,9 +24,9 @@ def main():
 
     use_cuda = True
     is_render = True
-    model_path = 'models/{}.model'.format(env_id)
-    predictor_path = 'models/{}.pred'.format(env_id)
-    target_path = 'models/{}.target'.format(env_id)
+    model_path = './nv03/models/{}.model'.format(env_id)
+    predictor_path = './nv03/models/{}.pred'.format(env_id)
+    target_path = './nv03/models/{}.target'.format(env_id)
 
     gamma = float(default_config['Gamma'])
 

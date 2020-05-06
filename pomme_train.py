@@ -65,16 +65,13 @@ def main():
     int_coef = float(default_config['IntCoef'])
 
     reward_rms = RunningMeanStd()
-    obs_rms = RunningMeanStd(shape=(1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE))
-    pre_obs_norm_step = int(default_config['ObsNormStep'])
+    # obs_rms = RunningMeanStd(shape=(1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE))
+    # pre_obs_norm_step = int(default_config['ObsNormStep'])
     discounted_reward = RewardForwardFilter(int_gamma)
 
-    if default_config['EnvType'] == 'pomme':
-        env_type = PommeEnvironment
-    else:
-        raise NotImplementedError
+    env_type = PommeEnvironment
 
-    agent = RNDAgent(
+    agents = [RNDAgent(
         N_CHANNELS,
         output_size,
         gamma,
@@ -87,18 +84,19 @@ def main():
         ppo_eps=ppo_eps,
         use_cuda=use_cuda,
         use_gae=use_gae,
-    )
+    )] * 2
 
     if is_load_model:
         print('load model...')
-        if use_cuda:
-            agent.model.load_state_dict(torch.load(model_path))
-            agent.rnd.predictor.load_state_dict(torch.load(predictor_path))
-            agent.rnd.target.load_state_dict(torch.load(target_path))
-        else:
-            agent.model.load_state_dict(torch.load(model_path, map_location='cpu'))
-            agent.rnd.predictor.load_state_dict(torch.load(predictor_path, map_location='cpu'))
-            agent.rnd.target.load_state_dict(torch.load(target_path, map_location='cpu'))
+        for agent in agents:
+            if use_cuda:
+                agent.model.load_state_dict(torch.load(model_path))
+                agent.rnd.predictor.load_state_dict(torch.load(predictor_path))
+                agent.rnd.target.load_state_dict(torch.load(target_path))
+            else:
+                agent.model.load_state_dict(torch.load(model_path, map_location='cpu'))
+                agent.rnd.predictor.load_state_dict(torch.load(predictor_path, map_location='cpu'))
+                agent.rnd.target.load_state_dict(torch.load(target_path, map_location='cpu'))
         print('load finished!')
 
     workers = []
@@ -247,7 +245,7 @@ def main():
         # -----------------------------------------------
 
         # Step 4. update obs normalize param
-        obs_rms.update(total_next_obs)
+        # obs_rms.update(total_next_obs)
         # -----------------------------------------------
 
         # Step 5. Training!
