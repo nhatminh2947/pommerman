@@ -22,13 +22,14 @@ class Ability:
 
 
 class PommeWrapper(gym.Wrapper):
-    def __init__(self, env, training_agents):
+    def __init__(self, env, training_agent):
         super().__init__(env)
         self.env = env
-        self.steps = np.zeros(shape=4)
-        self.episode_reward = np.zeros(shape=4)
-        self.num_bombs = np.zeros(shape=4)
+        self.steps = 0
+        self.episode_reward = 0
+        self.num_bombs = 0
         self.alive_agents = np.arange(4)
+        self.training_agent = training_agent
 
         self.ability = Ability()
         self.env.reset()
@@ -57,20 +58,22 @@ class PommeWrapper(gym.Wrapper):
         return reward
 
     def step(self, actions):
-        obs = self.env.get_observations()
-        new_obs, reward, done, info = self.env.step(actions)
+        prev_obs = self.env.get_observations()
+        observations, reward, done, info = self.env.step(actions)
 
-        for i, action in enumerate(actions):
-            if action == constants.Action.Bomb.value:
-                self.num_bombs[i] += 1
+        if actions[self.training_agent] == constants.Action.Bomb.value:
+            self.num_bombs += 1
 
-        rewards = [self.reward_shaping(new_obs[i], obs[i]['board']) for i in range(4)]
-
-        self.episode_reward = np.add(self.episode_reward, rewards)
+        reward = self.reward_shaping(observations[self.training_agent], prev_obs[self.training_agent]['board'])
+        self.episode_reward += reward
         self.steps += 1
 
+        current_alive_agents = np.asarray(observations[self.training_agent]['alive']) - constants.Item.Agent0.value
+        if self.training_agent not in current_alive_agents:
+            done = True
+
         if done:
-            if self.training_agents not in current_alive_agents:
+            if self.training_agent not in current_alive_agents:
                 result = constants.Result.Loss
             elif info['result'] == constants.Result.Win:
                 result = constants.Result.Win
@@ -79,79 +82,35 @@ class PommeWrapper(gym.Wrapper):
 
             info['episode_reward'] = self.episode_reward
             info['episode_result'] = result
-            # info['num_bombs'] = self.num_bombs
+            info['num_bombs'] = self.num_bombs
             info['steps'] = self.steps
             info['ammo'] = self.ability.ammo
             info['blast_strength'] = self.ability.blast_strength
             info['can_kick'] = self.ability.can_kick
 
-        return new_obs, [self.observation(new_obs[i]) for i in range(4)], rewards, done, info
-
-    def observation(self, obs):
-        id = 0
-        features = np.zeros(shape=(16, 11, 11))
-        # print(obs)
-        for item in constants.Item:
-            if item in [constants.Item.Bomb,
-                        constants.Item.Flames,
-                        constants.Item.Agent0,
-                        constants.Item.Agent1,
-                        constants.Item.Agent2,
-                        constants.Item.Agent3,
-                        constants.Item.AgentDummy]:
-                continue
-
-            features[id, :, :][obs["board"] == item.value] = 1
-            id += 1
-
-        for feature in ["flame_life", "bomb_life", "bomb_blast_strength"]:
-            features[id, :, :] = obs[feature]
-            id += 1
-
-        features[id, :, :][obs["position"]] = 1
-        id += 1
-
-        features[id, :, :][obs["board"] == obs["teammate"].value] = 1
-        id += 1
-
-        for enemy in obs["enemies"]:
-            features[id, :, :][obs["board"] == enemy.value] = 1
-        id += 1
-
-        features[id, :, :] = np.full(shape=(11, 11), fill_value=obs["ammo"])
-        id += 1
-
-        features[id, :, :] = np.full(shape=(11, 11), fill_value=obs["blast_strength"])
-        id += 1
-
-        features[id, :, :] = np.full(shape=(11, 11), fill_value=(1 if obs["can_kick"] else 0))
-        id += 1
-
-        return features
+        return observations, reward, done, info
 
     def reset(self):
         self.steps = 0
-        self.episode_reward = [0, 0, 0, 0]
+        self.episode_reward = 0
         self.alive_agents = [0, 1, 2, 3]
         self.num_bombs = 0
         self.ability.reset()
-        observations = self.env.reset()
 
-        return self.observation(observations[self.training_agents])
+        return self.env.reset()
 
 
 class PommeEnvironment(Process):
     def __init__(
             self,
-            env_id,
+            env_name,
             is_render,
             env_idx,
             child_conn,
-            json_dir=None,
-            is_team=False
+            json_dir=None
     ):
         super(PommeEnvironment, self).__init__()
-        print(env_id)
+        print(env_name)
 
         agent_list = [
             agents.BaseAgent(),
@@ -160,13 +119,10 @@ class PommeEnvironment(Process):
             agents.BaseAgent()
         ]
 
-        if is_team:
-            self.training_agents = [(env_idx % 4), ((env_idx % 4) + 2) % 4]  # Agents id is [0, 2] or [1, 3]
-        else:
-            self.training_agents = env_idx % 4  # Setting for single agent (FFA)
+        self.training_agent = env_idx % 4
 
-        self.env = pommerman.make(env_id, agent_list)
-        self.env = PommeWrapper(self.env, self.training_agents)
+        self.env = pommerman.make(env_name, agent_list)
+        self.env = PommeWrapper(self.env, self.training_agent)
 
         self.is_render = is_render
         self.env_idx = env_idx
@@ -177,17 +133,17 @@ class PommeEnvironment(Process):
 
         self.env.reset()
 
-        print("Training Agents:", self.training_agents)
+        print("Training Agents:", self.training_agent)
 
     def run(self):
         super(PommeEnvironment, self).run()
         while True:
-            agent_action = self.child_conn.recv()
+            agent_actions = self.child_conn.recv()
 
             if self.is_render:
                 self.env.render()
 
-            raw_obs, obs, reward, done, info = self.env.step(agent_action)
+            raw_obs, obs, reward, done, info = self.env.step(agent_actions)
 
             if done:
                 obs = self.reset()

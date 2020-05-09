@@ -142,3 +142,46 @@ def explained_variance(ypred, y):
     assert y.ndim == 1 and ypred.ndim == 1
     vary = np.var(y)
     return np.nan if vary == 0 else 1 - np.var(y - ypred) / vary
+
+
+def featurize(obs):
+    id = 0
+    features = np.zeros(shape=(16, 11, 11))
+    # print(obs)
+    for item in constants.Item:
+        if item in [constants.Item.Bomb,
+                    constants.Item.Flames,
+                    constants.Item.Agent0,
+                    constants.Item.Agent1,
+                    constants.Item.Agent2,
+                    constants.Item.Agent3,
+                    constants.Item.AgentDummy]:
+            continue
+
+        features[id, :, :][obs["board"] == item.value] = 1
+        id += 1
+
+    for feature in ["flame_life", "bomb_life", "bomb_blast_strength"]:
+        features[id, :, :] = obs[feature]
+        id += 1
+
+    features[id, :, :][obs["position"]] = 1
+    id += 1
+
+    features[id, :, :][obs["board"] == obs["teammate"].value] = 1
+    id += 1
+
+    for enemy in obs["enemies"]:
+        features[id, :, :][obs["board"] == enemy.value] = 1
+    id += 1
+
+    features[id, :, :] = np.full(shape=(11, 11), fill_value=obs["ammo"])
+    id += 1
+
+    features[id, :, :] = np.full(shape=(11, 11), fill_value=obs["blast_strength"])
+    id += 1
+
+    features[id, :, :] = np.full(shape=(11, 11), fill_value=(1 if obs["can_kick"] else 0))
+    id += 1
+
+    return features

@@ -8,6 +8,7 @@ from pommerman.constants import Action
 from torch.distributions.categorical import Categorical
 from torchsummary import summary
 
+import utils
 from model import CnnActorCriticNetwork, RNDModel
 from utils import global_grad_norm_
 
@@ -19,25 +20,13 @@ class StaticAgent(BaseAgent):
         return Action.Stop.value
 
 
-class RNDAgent(object):
-    def __init__(
-            self,
-            input_size,
-            output_size,
-            gamma,
-            lam=0.95,
-            learning_rate=1e-4,
-            ent_coef=0.01,
-            clip_grad_norm=0.5,
-            epoch=3,
-            batch_size=128,
-            ppo_eps=0.1,
-            update_proportion=0.25,
-            use_gae=True,
-            use_cuda=False,
-            use_noisy_net=False):
+class RNDAgent(BaseAgent):
+    def __init__(self, input_size, output_size, gamma, training, lam=0.95, learning_rate=1e-4, ent_coef=0.01,
+                 clip_grad_norm=0.5, epoch=3, batch_size=128, ppo_eps=0.1, update_proportion=0.25, use_gae=True,
+                 use_cuda=False, use_noisy_net=False):
+        super().__init__()
         self.model = CnnActorCriticNetwork(input_size, output_size, use_noisy_net).to("cuda")
-
+        self.training = training
         self.output_size = output_size
         self.input_size = input_size
         self.gamma = gamma
@@ -59,31 +48,35 @@ class RNDAgent(object):
 
         self.model = self.model.to(self.device)
 
-    def act(self, states):
-        state = torch.from_numpy(states).to(self.device)
-        state = state.float()
-        policy, value_ext, value_int = self.model(state)
-        action_prob = F.softmax(policy, dim=-1).data.cpu().numpy()
-        action = np.argmax(action_prob)
-        # print('action_prob:', action_prob)
-        # print('actions: ', actions)
-        # print('value_ext: ', value_ext)
-        # print('policy: ', policy)
-        return action
+    def act(self, states, action_space):
+        if self.training:
+            state = torch.from_numpy(states).to(self.device)
+            state = state.float()
+            policy, value_ext, value_int = self.model(state)
+            action_prob = F.softmax(policy, dim=-1).data.cpu().numpy()
+            actions = self.random_choice_prob_index(action_prob)
+            return actions, value_ext.data.cpu().numpy(), value_int.data.cpu().numpy(), policy.detach()
+        else:
+            features = utils.featurize(states)
+            features = torch.from_numpy(features).unsqueeze(0).float().to(self.device)
+            policy, value_ext, value_int = self.model(features)
+            action_prob = F.softmax(policy, dim=-1).data.cpu().numpy()
+            action = np.argmax(action_prob)
+            return action
 
-    def get_action(self, states):
-        state = torch.from_numpy(states).to(self.device)
-        state = state.float()
-        policy, value_ext, value_int = self.model(state)
-        action_prob = F.softmax(policy, dim=-1).data.cpu().numpy()
-        actions = self.random_choice_prob_index(action_prob)
-
-        # print('action_prob:', action_prob)
-        # print('actions: ', actions)
-        # print('value_ext: ', value_ext)
-        # print('policy: ', policy)
-
-        return actions, value_ext.data.cpu().numpy(), value_int.data.cpu().numpy(), policy.detach()
+    # def get_action(self, states):
+    #     state = torch.from_numpy(states).to(self.device)
+    #     state = state.float()
+    #     policy, value_ext, value_int = self.model(state)
+    #     action_prob = F.softmax(policy, dim=-1).data.cpu().numpy()
+    #     actions = self.random_choice_prob_index(action_prob)
+    #
+    #     # print('action_prob:', action_prob)
+    #     # print('actions: ', actions)
+    #     # print('value_ext: ', value_ext)
+    #     # print('policy: ', policy)
+    #
+    #     return actions, value_ext.data.cpu().numpy(), value_int.data.cpu().numpy(), policy.detach()
 
     @staticmethod
     def random_choice_prob_index(p, axis=1):

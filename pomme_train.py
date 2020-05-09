@@ -6,12 +6,13 @@ from pommerman import agents
 from agents import *
 from envs import *
 from utils import *
+from sample_batch import SampleBatch
 
 N_CHANNELS = 16
 
 
 def main():
-    env_id = default_config['EnvID']
+    config_id = default_config['ConfigID']
     env_type = default_config['EnvType']
 
     if env_type == 'pomme':
@@ -21,7 +22,7 @@ def main():
             agents.SimpleAgent(),
             agents.SimpleAgent()
         ]
-        env = pommerman.make(env_id, agent_list)
+        env = pommerman.make(config_id, agent_list)
     else:
         raise NotImplementedError
 
@@ -32,9 +33,9 @@ def main():
     is_load_model = default_config.getboolean('LoadModel')
     is_render = default_config.getboolean('Render')
 
-    model_path = 'models/{}.model'.format(env_id)
-    predictor_path = 'models/{}.pred'.format(env_id)
-    target_path = 'models/{}.target'.format(env_id)
+    model_path = 'models/{}.model'.format(config_id)
+    predictor_path = 'models/{}.pred'.format(config_id)
+    target_path = 'models/{}.target'.format(config_id)
 
     writer = SummaryWriter(filename_suffix='FFA_SimpleAgent')
 
@@ -49,7 +50,6 @@ def main():
     num_worker = int(default_config['NumEnv'])
 
     num_step = int(default_config['NumStep'])
-    max_timesteps = int(default_config['MaxTimesteps'])
     max_updates = int(default_config['MaxUpdates'])
 
     ppo_eps = float(default_config['PPOEps'])
@@ -69,12 +69,13 @@ def main():
     # pre_obs_norm_step = int(default_config['ObsNormStep'])
     discounted_reward = RewardForwardFilter(int_gamma)
 
-    env_type = PommeEnvironment
+    n_agents = 2
 
-    agents = [RNDAgent(
-        N_CHANNELS,
-        output_size,
-        gamma,
+    agent_pool = [RNDAgent(
+        input_size=N_CHANNELS,
+        output_size=output_size,
+        gamma=gamma,
+        training=False,
         lam=lam,
         learning_rate=learning_rate,
         ent_coef=entropy_coef,
@@ -84,11 +85,15 @@ def main():
         ppo_eps=ppo_eps,
         use_cuda=use_cuda,
         use_gae=use_gae,
-    )] * 2
+    )] * n_agents
+
+    agent_pool += [agents.SimpleAgent(), agents.SimpleAgent()]
 
     if is_load_model:
         print('load model...')
-        for agent in agents:
+        for agent in agent_pool:
+            if not isinstance(agent, RNDAgent):
+                continue
             if use_cuda:
                 agent.model.load_state_dict(torch.load(model_path))
                 agent.rnd.predictor.load_state_dict(torch.load(predictor_path))
@@ -99,12 +104,13 @@ def main():
                 agent.rnd.target.load_state_dict(torch.load(target_path, map_location='cpu'))
         print('load finished!')
 
+    env_type = PommeEnvironment
     workers = []
     parent_conns = []
     child_conns = []
     for idx in range(num_worker):
         parent_conn, child_conn = Pipe()
-        worker = env_type(env_id=env_id,
+        worker = env_type(env_name=config_id,
                           is_render=is_render,
                           env_idx=idx,
                           child_conn=child_conn,
@@ -135,16 +141,17 @@ def main():
         obs = worker.reset()
         states[i, :, :, :] = obs
 
+    sample_batches = [SampleBatch()] * n_agents
+
     while global_update < max_updates:
-        total_state, total_reward, total_done, total_next_state, total_action, total_int_reward, total_next_obs, \
-        total_ext_values, total_int_values, total_policy, total_policy_np = \
-            [], [], [], [], [], [], [], [], [], [], []
+        for sample_batch in sample_batches:
+            sample_batch.reset()
 
         global_step += (num_worker * num_step)
         global_update += 1
 
         # Step 1. n-step rollout
-        for _ in range(num_step):
+        for _ in range(num_step): 
             actions, value_ext, value_int, policy = agent.get_action(states)
 
             for parent_conn, action in zip(parent_conns, actions):

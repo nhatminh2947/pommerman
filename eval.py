@@ -4,12 +4,13 @@ from utils import *
 from gym.wrappers import Monitor
 from pommerman import agents
 import os
+
 N_CHANNELS = 16
 
 
 def main():
     n_episodes = 100
-    env_id = default_config['EnvID']
+    config_id = default_config['ConfigID']
 
     agent_list = [
         agents.SimpleAgent(),
@@ -18,22 +19,23 @@ def main():
         agents.SimpleAgent(),
     ]
 
-    env = pommerman.make(env_id, agent_list)
+    env = pommerman.make(config_id, agent_list)
     env.reset()
     output_size = env.action_space.n  # 2
 
     use_cuda = True
-    is_render = True
-    model_path = './nv03/models/{}.model'.format(env_id)
-    predictor_path = './nv03/models/{}.pred'.format(env_id)
-    target_path = './nv03/models/{}.target'.format(env_id)
+    is_render = False
+    model_path = './nv03/models/{}.model'.format(config_id)
+    predictor_path = './nv03/models/{}.pred'.format(config_id)
+    target_path = './nv03/models/{}.target'.format(config_id)
 
     gamma = float(default_config['Gamma'])
 
     agent = RNDAgent(
         N_CHANNELS,
         output_size,
-        gamma
+        gamma,
+        training=False
     )
 
     print('Loading Pre-trained model....')
@@ -50,32 +52,39 @@ def main():
     wins = 0
     losses = 0
     ties = 0
-
-    env = PommeWrapper(env, training_agents=0)
+    agent_list = [
+        agent,
+        agents.SimpleAgent(),
+        agents.SimpleAgent(),
+        agents.SimpleAgent(),
+        # agents.DockerAgent("multiagentlearning/nips19-tu2id4n.hit_mhp_agent_v1", port=12333),
+    ]
+    # Make the "Free-For-All" environment using the agent list
+    env = pommerman.make('PommeFFACompetition-v0', agent_list)
 
     for i in range(n_episodes):
-        obs = env.reset()
+        state = env.reset()
         done = False
         while not done:
             if is_render:
-                # dir = './pngs/{}'.format(i)
-                # if not os.path.exists(dir):
-                #     os.mkdir(dir)
-                # env.render(record_pngs_dir=dir)
                 env.render()
-
-            action = agent.act(torch.from_numpy(obs).unsqueeze(0).float().numpy())
-            raw_obs, obs, reward, done, info = env.step(action)
+            actions = env.act(state)
+            state, reward, done, info = env.step(actions)
 
             if done:
-                if info['episode_result'] == constants.Result.Win:
-                    wins += 1
-                elif info['episode_result'] == constants.Result.Loss:
-                    losses += 1
-                elif info['episode_result'] == constants.Result.Tie:
+                result = 'win'
+                if info['result'] == constants.Result.Win:
+                    if 0 in info['winners']:
+                        wins += 1
+                        result = 'Win'
+                    else:
+                        losses += 1
+                        result = 'Loss'
+                elif info['result'] == constants.Result.Tie:
                     ties += 1
+                    result = 'Tie'
 
-                print('Result: {} Reward: {}'.format(info['episode_result'], info['episode_reward']))
+                print('Result: {}'.format(result))
 
     print('winrate: {}'.format(wins / n_episodes))
     print('losses: {}'.format(losses / n_episodes))
