@@ -14,7 +14,7 @@ from utils import global_grad_norm_
 
 
 class StaticAgent(BaseAgent):
-    """ Static agent"""
+    """ Static navocado"""
 
     def act(self, obs, action_space):
         return Action.Stop.value
@@ -92,19 +92,19 @@ class RNDAgent(BaseAgent):
 
         return intrinsic_reward.data.cpu().numpy()
 
-    def train_model(self, s_batch, target_ext_batch, target_int_batch, y_batch, adv_batch, next_obs_batch, old_policy):
-        s_batch = torch.from_numpy(s_batch).float().to(self.device)
-        target_ext_batch = torch.from_numpy(target_ext_batch).float().to(self.device)
-        target_int_batch = torch.from_numpy(target_int_batch).float().to(self.device)
-        y_batch = torch.from_numpy(y_batch).long().to(self.device)
-        adv_batch = torch.from_numpy(adv_batch).float().to(self.device)
-        next_obs_batch = torch.from_numpy(next_obs_batch).float().to(self.device)
+    def train_model(self, sample_batch):
+        s_batch = torch.from_numpy(sample_batch.batch_states).float().to(self.device)
+        target_ext_batch = torch.from_numpy(sample_batch.ext_target).float().to(self.device)
+        target_int_batch = torch.from_numpy(sample_batch.int_target).float().to(self.device)
+        y_batch = torch.from_numpy(sample_batch.batch_action).long().to(self.device)
+        adv_batch = torch.from_numpy(sample_batch.batch_adv).float().to(self.device)
+        next_obs_batch = torch.from_numpy(sample_batch.batch_next_obs).float().to(self.device)
 
         sample_range = np.arange(len(s_batch))
         forward_mse = nn.MSELoss(reduction='none')
 
         with torch.no_grad():
-            policy_old_list = torch.stack(old_policy).permute(1, 0, 2).contiguous().view(-1, self.output_size).to(
+            policy_old_list = torch.stack(sample_batch.batch_policy).permute(1, 0, 2).contiguous().view(-1, self.output_size).to(
                 self.device)
 
             m_old = Categorical(F.softmax(policy_old_list, dim=-1))
@@ -175,3 +175,87 @@ class RNDAgent(BaseAgent):
         entropy = np.mean(batch_entropy)
 
         return loss, critic_ext_loss, critic_int_loss, actor_loss, forward_loss, entropy
+
+    # def train_model(self, s_batch, target_ext_batch, target_int_batch, y_batch, adv_batch, next_obs_batch, old_policy):
+    #     s_batch = torch.from_numpy(s_batch).float().to(self.device)
+    #     target_ext_batch = torch.from_numpy(target_ext_batch).float().to(self.device)
+    #     target_int_batch = torch.from_numpy(target_int_batch).float().to(self.device)
+    #     y_batch = torch.from_numpy(y_batch).long().to(self.device)
+    #     adv_batch = torch.from_numpy(adv_batch).float().to(self.device)
+    #     next_obs_batch = torch.from_numpy(next_obs_batch).float().to(self.device)
+    #
+    #     sample_range = np.arange(len(s_batch))
+    #     forward_mse = nn.MSELoss(reduction='none')
+    #
+    #     with torch.no_grad():
+    #         policy_old_list = torch.stack(old_policy).permute(1, 0, 2).contiguous().view(-1, self.output_size).to(
+    #             self.device)
+    #
+    #         m_old = Categorical(F.softmax(policy_old_list, dim=-1))
+    #         log_prob_old = m_old.log_prob(y_batch)
+    #         # ------------------------------------------------------------
+    #
+    #     batch_forward_loss = []
+    #     batch_actor_loss = []
+    #     batch_critic_ext_loss = []
+    #     batch_critic_int_loss = []
+    #     batch_loss = []
+    #     batch_entropy = []
+    #
+    #     for i in range(self.epoch):
+    #         np.random.shuffle(sample_range)
+    #         for j in range(int(len(s_batch) / self.batch_size)):
+    #             sample_idx = sample_range[self.batch_size * j:self.batch_size * (j + 1)]
+    #
+    #             # --------------------------------------------------------------------------------
+    #             # for Curiosity-driven(Random Network Distillation)
+    #             predict_next_state_feature, target_next_state_feature = self.rnd(next_obs_batch[sample_idx])
+    #
+    #             forward_loss = forward_mse(predict_next_state_feature, target_next_state_feature.detach()).mean(-1)
+    #             # Proportion of exp used for predictor update
+    #             mask = torch.rand(len(forward_loss)).to(self.device)
+    #             mask = (mask < self.update_proportion).type(torch.FloatTensor).to(self.device)
+    #             forward_loss = (forward_loss * mask).sum() / torch.max(mask.sum(), torch.Tensor([1]).to(self.device))
+    #             # ---------------------------------------------------------------------------------
+    #
+    #             policy, value_ext, value_int = self.model(s_batch[sample_idx])
+    #             m = Categorical(F.softmax(policy, dim=-1))
+    #             log_prob = m.log_prob(y_batch[sample_idx])
+    #
+    #             ratio = torch.exp(log_prob - log_prob_old[sample_idx])
+    #
+    #             surr1 = ratio * adv_batch[sample_idx]
+    #             surr2 = torch.clamp(
+    #                 ratio,
+    #                 1.0 - self.ppo_eps,
+    #                 1.0 + self.ppo_eps) * adv_batch[sample_idx]
+    #
+    #             actor_loss = -torch.min(surr1, surr2).mean()
+    #             critic_ext_loss = F.mse_loss(value_ext.sum(1), target_ext_batch[sample_idx])
+    #             critic_int_loss = F.mse_loss(value_int.sum(1), target_int_batch[sample_idx])
+    #
+    #             critic_loss = critic_ext_loss + critic_int_loss
+    #
+    #             entropy = m.entropy().mean()
+    #
+    #             self.optimizer.zero_grad()
+    #             loss = actor_loss + 0.5 * critic_loss - self.ent_coef * entropy + forward_loss
+    #             loss.backward()
+    #             global_grad_norm_(list(self.model.parameters()) + list(self.rnd.predictor.parameters()))
+    #             self.optimizer.step()
+    #
+    #             batch_forward_loss.append(forward_loss.item())
+    #             batch_actor_loss.append(actor_loss.item())
+    #             batch_critic_ext_loss.append(critic_ext_loss.item())
+    #             batch_critic_int_loss.append(critic_int_loss.item())
+    #             batch_loss.append(loss.item())
+    #             batch_entropy.append(entropy.item())
+    #
+    #     loss = np.mean(batch_loss)
+    #     critic_ext_loss = np.mean(batch_critic_ext_loss)
+    #     critic_int_loss = np.mean(batch_critic_int_loss)
+    #     actor_loss = np.mean(batch_actor_loss)
+    #     forward_loss = np.mean(batch_forward_loss)
+    #     entropy = np.mean(batch_entropy)
+    #
+    #     return loss, critic_ext_loss, critic_int_loss, actor_loss, forward_loss, entropy

@@ -4,7 +4,7 @@ from utils import *
 from gym.wrappers import Monitor
 from pommerman import agents
 import os
-
+from navocado.rllib_v2_agent import RLLibV2Agent
 N_CHANNELS = 16
 
 
@@ -54,12 +54,12 @@ def main():
     ties = 0
     agent_list = [
         agent,
-        agents.SimpleAgent(),
+        agents.DockerAgent('multiagentlearning/navocado', port=12345),
         agents.SimpleAgent(),
         agents.SimpleAgent(),
         # agents.DockerAgent("multiagentlearning/nips19-tu2id4n.hit_mhp_agent_v1", port=12333),
     ]
-    # Make the "Free-For-All" environment using the agent list
+    # Make the "Free-For-All" environment using the navocado list
     env = pommerman.make('PommeFFACompetition-v0', agent_list)
 
     for i in range(n_episodes):
