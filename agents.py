@@ -50,6 +50,7 @@ class RNDAgent(BaseAgent):
 
     def act(self, states, action_space):
         if self.training:
+            features = utils.featurize(states)
             state = torch.from_numpy(states).to(self.device)
             state = state.float()
             policy, value_ext, value_int = self.model(state)
@@ -64,19 +65,19 @@ class RNDAgent(BaseAgent):
             action = np.argmax(action_prob)
             return action
 
-    # def get_action(self, states):
-    #     state = torch.from_numpy(states).to(self.device)
-    #     state = state.float()
-    #     policy, value_ext, value_int = self.model(state)
-    #     action_prob = F.softmax(policy, dim=-1).data.cpu().numpy()
-    #     actions = self.random_choice_prob_index(action_prob)
-    #
-    #     # print('action_prob:', action_prob)
-    #     # print('actions: ', actions)
-    #     # print('value_ext: ', value_ext)
-    #     # print('policy: ', policy)
-    #
-    #     return actions, value_ext.data.cpu().numpy(), value_int.data.cpu().numpy(), policy.detach()
+    def get_action(self, states):
+        features = utils.featurize(states)
+        features = torch.from_numpy(features).unsqueeze(0).float().to(self.device)
+        policy, value_ext, value_int = self.model(features)
+        action_prob = F.softmax(policy, dim=-1).data.cpu().numpy()
+        actions = self.random_choice_prob_index(action_prob)
+
+        # print('action_prob:', action_prob)
+        # print('actions: ', actions)
+        # print('value_ext: ', value_ext)
+        # print('policy: ', policy)
+
+        return actions, value_ext.data.cpu().numpy(), value_int.data.cpu().numpy(), policy.detach()
 
     @staticmethod
     def random_choice_prob_index(p, axis=1):
@@ -84,7 +85,9 @@ class RNDAgent(BaseAgent):
         return (p.cumsum(axis=axis) > r).argmax(axis=axis)
 
     def compute_intrinsic_reward(self, next_obs):
-        next_obs = torch.from_numpy(next_obs).float().to(self.device)
+        print(next_obs)
+        next_obs = utils.featurize(next_obs)
+        next_obs = torch.from_numpy(next_obs).unsqueeze(0).float().to(self.device)
 
         target_next_feature = self.rnd.target(next_obs)
         predict_next_feature = self.rnd.predictor(next_obs)
@@ -104,7 +107,8 @@ class RNDAgent(BaseAgent):
         forward_mse = nn.MSELoss(reduction='none')
 
         with torch.no_grad():
-            policy_old_list = torch.stack(sample_batch.batch_policy).permute(1, 0, 2).contiguous().view(-1, self.output_size).to(
+            policy_old_list = torch.stack(sample_batch.batch_policy).permute(1, 0, 2).contiguous().view(-1,
+                                                                                                        self.output_size).to(
                 self.device)
 
             m_old = Categorical(F.softmax(policy_old_list, dim=-1))
@@ -141,10 +145,7 @@ class RNDAgent(BaseAgent):
                 ratio = torch.exp(log_prob - log_prob_old[sample_idx])
 
                 surr1 = ratio * adv_batch[sample_idx]
-                surr2 = torch.clamp(
-                    ratio,
-                    1.0 - self.ppo_eps,
-                    1.0 + self.ppo_eps) * adv_batch[sample_idx]
+                surr2 = torch.clamp(ratio, 1.0 - self.ppo_eps, 1.0 + self.ppo_eps) * adv_batch[sample_idx]
 
                 actor_loss = -torch.min(surr1, surr2).mean()
                 critic_ext_loss = F.mse_loss(value_ext.sum(1), target_ext_batch[sample_idx])

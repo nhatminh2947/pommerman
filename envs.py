@@ -64,8 +64,8 @@ class PommeWrapper(gym.Wrapper):
         if actions[self.training_agent] == constants.Action.Bomb.value:
             self.num_bombs += 1
 
-        reward = self.reward_shaping(observations[self.training_agent], prev_obs[self.training_agent]['board'])
-        self.episode_reward += reward
+        reward = [self.reward_shaping(observations[i], prev_obs[i]['board']) for i in range(4)]
+        self.episode_reward += reward[self.training_agent]
         self.steps += 1
 
         current_alive_agents = np.asarray(observations[self.training_agent]['alive']) - constants.Item.Agent0.value
@@ -120,6 +120,14 @@ class PommeEnvironment(Process):
         ]
 
         self.training_agent = env_idx % 4
+        if self.training_agent == 0:
+            self.mapping = [0, 1, 2, 3]
+        elif self.training_agent == 1:
+            self.mapping = [3, 0, 1, 2]
+        elif self.training_agent == 2:
+            self.mapping = [2, 3, 0, 1]
+        elif self.training_agent == 3:
+            self.mapping = [1, 2, 3, 0]
 
         self.env = pommerman.make(env_name, agent_list)
         self.env = PommeWrapper(self.env, self.training_agent)
@@ -135,6 +143,16 @@ class PommeEnvironment(Process):
 
         print("Training Agents:", self.training_agent)
 
+    def map(self, elements):
+        return [elements[x] for x in self.mapping]
+
+    def origin(self, elements):
+        temp = [None] * 4
+        for i in range(4):
+            temp[self.mapping[i]] = elements[i]
+
+        return temp
+
     def run(self):
         super(PommeEnvironment, self).run()
         while True:
@@ -143,10 +161,15 @@ class PommeEnvironment(Process):
             if self.is_render:
                 self.env.render()
 
-            raw_obs, obs, reward, done, info = self.env.step(agent_actions)
+            agent_actions = self.map(agent_actions)
+
+            obs, reward, done, info = self.env.step(agent_actions)
 
             if done:
                 obs = self.reset()
+
+            obs = self.origin(obs)
+            reward = self.origin(reward)
 
             self.child_conn.send([obs, reward, done, info])
 

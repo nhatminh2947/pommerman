@@ -55,13 +55,13 @@ class SampleBatch:
         self.batch_int_values.append(value_int)
 
     def preprocess(self):
-        self.batch_states = np.stack(self.batch_states).transpose([1, 0, 2, 3, 4]).reshape(
-            [-1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
+        # self.batch_states = np.stack(self.batch_states).transpose([1, 0, 2, 3, 4]).reshape(
+        #     [-1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
         self.batch_reward = np.stack(self.batch_reward).transpose()
         self.batch_action = np.stack(self.batch_action).transpose().reshape([-1])
         self.batch_done = np.stack(self.batch_done).transpose()
-        self.batch_next_obs = np.stack(self.batch_next_obs).transpose([1, 0, 2, 3, 4]).reshape(
-            [-1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
+        # self.batch_next_obs = np.stack(self.batch_next_obs).transpose([1, 0, 2, 3, 4]).reshape(
+        #     [-1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
         self.batch_ext_values = np.squeeze(self.batch_ext_values, axis=-1).transpose()
         self.batch_int_values = np.squeeze(self.batch_int_values, axis=-1).transpose()
 

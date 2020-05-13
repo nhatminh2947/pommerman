@@ -61,8 +61,6 @@ def main():
     gamma = float(default_config['Gamma'])
     int_gamma = float(default_config['IntGamma'])
     clip_grad_norm = float(default_config['ClipGradNorm'])
-    ext_coef = float(default_config['ExtCoef'])
-    int_coef = float(default_config['IntCoef'])
 
     reward_rms = RunningMeanStd()
     # obs_rms = RunningMeanStd(shape=(1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE))
@@ -87,9 +85,9 @@ def main():
         use_gae=use_gae,
     )] * n_agents
 
-    agent_pool += [agents.SimpleAgent(), agents.SimpleAgent()]
+    # agent_pool += [agents.SimpleAgent(), agents.SimpleAgent()]
 
-    agent = RNDAgent(
+    training_agent = RNDAgent(
         input_size=N_CHANNELS,
         output_size=output_size,
         gamma=gamma,
@@ -109,17 +107,17 @@ def main():
 
     if is_load_model:
         print('load model...')
-        for agent in agent_pool:
-            if not isinstance(agent, RNDAgent):
+        for training_agent in agent_pool:
+            if not isinstance(training_agent, RNDAgent):
                 continue
             if use_cuda:
-                agent.model.load_state_dict(torch.load(model_path))
-                agent.rnd.predictor.load_state_dict(torch.load(predictor_path))
-                agent.rnd.target.load_state_dict(torch.load(target_path))
+                training_agent.model.load_state_dict(torch.load(model_path))
+                training_agent.rnd.predictor.load_state_dict(torch.load(predictor_path))
+                training_agent.rnd.target.load_state_dict(torch.load(target_path))
             else:
-                agent.model.load_state_dict(torch.load(model_path, map_location='cpu'))
-                agent.rnd.predictor.load_state_dict(torch.load(predictor_path, map_location='cpu'))
-                agent.rnd.target.load_state_dict(torch.load(target_path, map_location='cpu'))
+                training_agent.model.load_state_dict(torch.load(model_path, map_location='cpu'))
+                training_agent.rnd.predictor.load_state_dict(torch.load(predictor_path, map_location='cpu'))
+                training_agent.rnd.target.load_state_dict(torch.load(target_path, map_location='cpu'))
         print('load finished!')
 
     env_type = PommeEnvironment
@@ -153,36 +151,58 @@ def main():
     episode_agent_blast_strength = 0
     episode_agent_can_kick = 0
 
-    states = np.zeros([num_worker, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
+    # states = np.zeros([num_worker, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
+
+    observations = []
 
     for i, worker in enumerate(workers):
         obs = worker.reset()
-        states[i, :, :, :] = obs
+        observations.append(obs)
+        # states[i, :, :, :] = obs[0]
 
-    # sample_batches = [SampleBatch()] * n_agents
+    observations = np.asarray(observations)
+
     sample_batch = SampleBatch()
+
+    agent_list = [
+        training_agent,
+        enemy,
+        enemy,
+        enemy
+    ]
 
     while global_update < max_updates:
         sample_batch.reset()
-        # for sample_batch in sample_batches:
-        #     sample_batch.reset()
 
         global_step += (num_worker * num_step)
         global_update += 1
 
         # Step 1. n-step rollout
         for _ in range(num_step):
-            actions, value_ext, value_int, policy = agent.act(states, None)
+            agent_actions, value_exts, value_ints, policies = [], [], [], []
 
-            for parent_conn, action in zip(parent_conns, actions):
-                parent_conn.send(action)
+            for observation, parent_conn in zip(observations, parent_conns):
+                actions = []
+                for i, (agent, obs) in enumerate(zip(agent_list, observation)):
+                    if i == 0:
+                        action, value_ext, value_int, policy = agent.get_action(obs)
 
-            next_obs, rewards, dones = [], [], []
+                        actions.append(action)
+                        agent_actions.append(action)
+                        value_ints.append(value_int)
+                        value_exts.append(value_ext)
+                        policies.append(policy)
+                    else:
+                        actions.append(agent.act(obs, None))
+
+                parent_conn.send(actions)
+
+            next_obs, rewards, intrinsic_rewards, dones = [], [], [], []
             for parent_conn in parent_conns:
                 obs, reward, done, info = parent_conn.recv()
 
                 next_obs.append(obs)
-                rewards.append(reward)
+                rewards.append(reward[0])
                 dones.append(done)
 
                 if done:
@@ -203,80 +223,32 @@ def main():
                     episode_this_update += 1
                     global_episode += 1
 
+            next_obs = np.asarray(next_obs)
             rewards = np.hstack(rewards)
             dones = np.hstack(dones)
-            next_obs = np.stack(next_obs)
 
             # total reward = int reward + ext Reward
-            intrinsic_reward = agent.compute_intrinsic_reward(next_obs)
-            intrinsic_reward = np.hstack(intrinsic_reward)
+            # print(next_obs)
+            intrinsic_rewards = training_agent.compute_intrinsic_reward(next_obs[:, 0])
+            intrinsic_rewards = np.hstack(intrinsic_rewards)
 
-            sample_batch.add(next_obs=next_obs,
-                             intrinsic_reward=intrinsic_reward,
-                             states=states,
+            sample_batch.add(next_obs=next_obs[:, 0],
+                             intrinsic_reward=intrinsic_rewards,
+                             states=observations[:, 0],
                              rewards=rewards,
                              dones=dones,
-                             actions=actions,
-                             value_ext=value_ext,
-                             value_int=value_int,
-                             policy=policy)
+                             actions=agent_actions,
+                             value_ext=value_exts,
+                             value_int=value_ints,
+                             policy=policies)
 
-            states = next_obs[:, :, :, :]
+            observations = next_obs
 
         sample_batch.preprocess()
-        # calculate last next value
-        # _, value_ext, value_int, _ = agent.get_action(states)  # Normalize state?
-        # sample_batch.add_last_next_value(value_ext, value_int)
-        # --------------------------------------------------
-        # total_state = np.stack(total_state).transpose([1, 0, 2, 3, 4]).reshape(
-        #     [-1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
-        # total_reward = np.stack(total_reward).transpose()
-        # total_action = np.stack(total_action).transpose().reshape([-1])
-        # total_done = np.stack(total_done).transpose()
-        # total_next_obs = np.stack(total_next_obs).transpose([1, 0, 2, 3, 4]).reshape(
-        #     [-1, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
-        # total_ext_values = np.squeeze(total_ext_values, axis=-1).transpose()
-        # total_int_values = np.squeeze(total_int_values, axis=-1).transpose()
-
-        # Step 2. calculate intrinsic reward
-        # running mean intrinsic reward
-        # total_int_reward = np.stack(total_int_reward).transpose()
-        # total_reward_per_env = np.array([discounted_reward.update(reward_per_step) for reward_per_step in
-        #                                  total_int_reward.T])
-        # mean, std, count = np.mean(total_reward_per_env), np.std(total_reward_per_env), len(total_reward_per_env)
-        # reward_rms.update_from_moments(mean, std ** 2, count)
-
-        # normalize intrinsic reward
-        # total_int_reward /= np.sqrt(reward_rms.var)
-
-        # Step 3. make target and advantage
-        # extrinsic reward calculate
-        # ext_target, ext_adv = make_train_data(total_reward,
-        #                                       total_done,
-        #                                       total_ext_values,
-        #                                       gamma,
-        #                                       num_step,
-        #                                       num_worker)
-
-        # intrinsic reward calculate
-        # None Episodic
-        # int_target, int_adv = make_train_data(total_int_reward,
-        #                                       np.zeros_like(total_int_reward),
-        #                                       total_int_values,
-        #                                       int_gamma,
-        #                                       num_step,
-        #                                       num_worker)
-
-        # add ext adv and int adv
-        # total_adv = int_adv * int_coef + ext_adv * ext_coef
-        # -----------------------------------------------
-
-        # Step 4. update obs normalize param
-        # obs_rms.update(total_next_obs)
-        # -----------------------------------------------
 
         # Step 5. Training!
-        loss, critic_ext_loss, critic_int_loss, actor_loss, forward_loss, entropy = agent.train_model(sample_batch)
+        loss, critic_ext_loss, critic_int_loss, actor_loss, forward_loss, entropy = training_agent.train_model(
+            sample_batch)
 
         if global_update % logging_interval == 0 or global_update == 1:
             writer.add_scalar('loss/total_loss', loss, global_update)
@@ -333,9 +305,9 @@ def main():
             episode_agent_blast_strength = 0
             episode_agent_can_kick = 0
 
-            torch.save(agent.model.state_dict(), model_path)
-            torch.save(agent.rnd.predictor.state_dict(), predictor_path)
-            torch.save(agent.rnd.target.state_dict(), target_path)
+            torch.save(training_agent.model.state_dict(), model_path)
+            torch.save(training_agent.rnd.predictor.state_dict(), predictor_path)
+            torch.save(training_agent.rnd.target.state_dict(), target_path)
 
 
 if __name__ == '__main__':

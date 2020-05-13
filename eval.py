@@ -4,7 +4,6 @@ from utils import *
 from gym.wrappers import Monitor
 from pommerman import agents
 import os
-from navocado.rllib_v2_agent import RLLibV2Agent
 N_CHANNELS = 16
 
 
@@ -24,7 +23,7 @@ def main():
     output_size = env.action_space.n  # 2
 
     use_cuda = True
-    is_render = False
+    is_render = True
     model_path = './nv03/models/{}.model'.format(config_id)
     predictor_path = './nv03/models/{}.pred'.format(config_id)
     target_path = './nv03/models/{}.target'.format(config_id)
@@ -54,13 +53,13 @@ def main():
     ties = 0
     agent_list = [
         agent,
-        agents.DockerAgent('multiagentlearning/navocado', port=12345),
         agents.SimpleAgent(),
         agents.SimpleAgent(),
+        agents.DockerAgent('multiagentlearning/eisenach', port=11111),
         # agents.DockerAgent("multiagentlearning/nips19-tu2id4n.hit_mhp_agent_v1", port=12333),
     ]
     # Make the "Free-For-All" environment using the navocado list
-    env = pommerman.make('PommeFFACompetition-v0', agent_list)
+    env = pommerman.make('PommeTeamCompetitionFast-v0', agent_list)
 
     for i in range(n_episodes):
         state = env.reset()
