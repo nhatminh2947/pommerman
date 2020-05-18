@@ -165,18 +165,17 @@ class PommeEnvironment(Process):
         super(PommeEnvironment, self).__init__()
         print(env_id)
 
-        agent_list = [
-            agents.SimpleAgent(),
-            agents.SimpleAgent(),
-            agents.SimpleAgent(),
-            agents.SimpleAgent()
-        ]
-
+        agent_list = []
         if is_team:
             self.training_agents = [(env_idx % 4), ((env_idx % 4) + 2) % 4]  # Agents id is [0, 2] or [1, 3]
         else:
             self.training_agents = env_idx % 4  # Setting for single agent (FFA)
-            agent_list[self.training_agents] = agents.RandomAgent()
+
+            for i in range(4):
+                if i == self.training_agents:
+                    agent_list.append(agents.RandomAgent())
+                else:
+                    agent_list.append(agents.DockerAgent('multiagentlearning/navocado', port=(20000+(env_idx * 4 + i))))
 
         self.env = pommerman.make(env_id, agent_list)
         self.env = PommeWrapper(self.env, self.training_agents)

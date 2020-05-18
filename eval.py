@@ -24,10 +24,10 @@ def main():
     output_size = env.action_space.n  # 2
 
     use_cuda = True
-    is_render = False
-    model_path = 'models/FFA_SimpleAgent_RS/{}.model'.format(env_id)
-    predictor_path = 'models/FFA_SimpleAgent_RS/{}.pred'.format(env_id)
-    target_path = 'models/FFA_SimpleAgent_RS/{}.target'.format(env_id)
+    is_render = True
+    model_path = 'models/{}.model'.format(env_id)
+    predictor_path = 'models/{}.pred'.format(env_id)
+    target_path = 'models/{}.target'.format(env_id)
 
     gamma = float(default_config['Gamma'])
 
