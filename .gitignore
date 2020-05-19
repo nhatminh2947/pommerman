@@ -2,3 +2,5 @@ runs/
 models/
 .idea
 __pycache__
+pngs/
+data/

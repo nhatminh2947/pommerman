@@ -2,54 +2,36 @@ from agents import *
 from envs import *
 from utils import *
 from gym.wrappers import Monitor
+from pommerman import agents
 
 N_CHANNELS = 16
 
 
 def main():
-    print({section: dict(config[section]) for section in config.sections()})
+    n_episodes = 100
     env_id = default_config['EnvID']
 
     agent_list = [
-        StaticAgent(),
-        StaticAgent(),
-        StaticAgent(),
-        StaticAgent()
+        agents.SimpleAgent(),
+        agents.SimpleAgent(),
+        agents.SimpleAgent(),
+        agents.SimpleAgent()
+        # agents.DockerAgent('multiagentlearning/hakozakijunctions', port=12345),
     ]
-    env = pommerman.make(env_id, agent_list, 'long_line.json')
+
+    env = pommerman.make(env_id, agent_list)
     env.reset()
-
-    input_size = 16
     output_size = env.action_space.n  # 2
-    print('output_size:', output_size)
-    env.close()
 
+    use_cuda = True
     is_render = True
     model_path = 'models/{}.model'.format(env_id)
     predictor_path = 'models/{}.pred'.format(env_id)
     target_path = 'models/{}.target'.format(env_id)
 
-    use_cuda = False
-    use_gae = default_config.getboolean('UseGAE')
-    use_noisy_net = default_config.getboolean('UseNoisyNet')
-
-    lam = float(default_config['Lambda'])
-    num_worker = 1
-
-    num_step = int(default_config['NumStep'])
-
-    ppo_eps = float(default_config['PPOEps'])
-    epoch = int(default_config['Epoch'])
-    mini_batch = int(default_config['MiniBatch'])
-    batch_size = int(num_step * num_worker / mini_batch)
-    learning_rate = float(default_config['LearningRate'])
-    entropy_coef = float(default_config['Entropy'])
-    clip_grad_norm = float(default_config['ClipGradNorm'])
-
     gamma = float(default_config['Gamma'])
-    agent = RNDAgent
 
-    agent = agent(
+    agent = RNDAgent(
         N_CHANNELS,
         output_size,
         gamma
@@ -66,21 +48,35 @@ def main():
         agent.rnd.target.load_state_dict(torch.load(target_path, map_location='cpu'))
     print('End load...')
 
-    obs = env.reset()
-    state = torch.from_numpy(utils.featurize(obs[0])).unsqueeze(0).float().numpy()
+    wins = 0
+    losses = 0
+    ties = 0
 
-    while True:
-        env.render()
-        action = agent.act(state)
+    env = PommeWrapper(env, training_agents=0)
 
-        actions = env.act(obs)
-        actions[0] = action
-        obs, reward, done, info = env.step(actions)
-        state = torch.from_numpy(utils.featurize(obs[0])).unsqueeze(0).float().numpy()
+    for i in range(n_episodes):
+        obs = env.reset()
+        done = False
+        while not done:
+            if is_render:
+                env.render()
 
-        if done:
-            print('info: ', info)
-            break
+            action = agent.act(torch.from_numpy(obs).unsqueeze(0).float().numpy())
+            raw_obs, obs, reward, done, info = env.step(action)
+
+            if done:
+                if info['episode_result'] == constants.Result.Win:
+                    wins += 1
+                elif info['episode_result'] == constants.Result.Loss:
+                    losses += 1
+                elif info['episode_result'] == constants.Result.Tie:
+                    ties += 1
+
+                print('Result: {} Reward: {}'.format(info['episode_result'], info['episode_reward']))
+
+    print('winrate: {}'.format(wins / n_episodes))
+    print('losses: {}'.format(losses / n_episodes))
+    print('tie: {}'.format(ties / n_episodes))
 
 
 if __name__ == '__main__':

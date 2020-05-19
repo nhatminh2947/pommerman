@@ -6,6 +6,7 @@ import torch.optim as optim
 from pommerman.agents import BaseAgent
 from pommerman.constants import Action
 from torch.distributions.categorical import Categorical
+from torchsummary import summary
 
 from model import CnnActorCriticNetwork, RNDModel
 from utils import global_grad_norm_
@@ -35,8 +36,8 @@ class RNDAgent(object):
             use_gae=True,
             use_cuda=False,
             use_noisy_net=False):
-        print(input_size)
-        self.model = CnnActorCriticNetwork(input_size, output_size, use_noisy_net)
+        self.model = CnnActorCriticNetwork(input_size, output_size, use_noisy_net).to("cuda")
+
         self.output_size = output_size
         self.input_size = input_size
         self.gamma = gamma
@@ -54,6 +55,7 @@ class RNDAgent(object):
         self.optimizer = optim.Adam(list(self.model.parameters()) + list(self.rnd.predictor.parameters()),
                                     lr=learning_rate)
         self.rnd = self.rnd.to(self.device)
+        self.n_alive = 3
 
         self.model = self.model.to(self.device)
 
@@ -63,10 +65,11 @@ class RNDAgent(object):
         policy, value_ext, value_int = self.model(state)
         action_prob = F.softmax(policy, dim=-1).data.cpu().numpy()
         action = np.argmax(action_prob)
-        # print('policy:', policy)
+
         # print('action_prob:', action_prob)
-        # print('actions:', action)
-        # print('value_ext:', value_ext)
+        # print('actions: ', actions)
+        # print('value_ext: ', value_ext)
+        # print('policy: ', policy)
 
         return action
 
