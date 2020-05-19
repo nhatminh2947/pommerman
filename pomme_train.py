@@ -107,7 +107,6 @@ def main():
     for idx in range(num_worker):
         parent_conn, child_conn = Pipe()
         worker = env_type(env_id=env_id,
-                          agent_list=default_config['Agents'],
                           is_render=is_render,
                           env_idx=idx,
                           child_conn=child_conn,

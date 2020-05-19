@@ -155,7 +155,6 @@ class PommeEnvironment(Process):
     def __init__(
             self,
             env_id,
-            agent_list,
             is_render,
             env_idx,
             child_conn,
@@ -175,7 +174,7 @@ class PommeEnvironment(Process):
                 if i == self.training_agents:
                     agent_list.append(agents.RandomAgent())
                 else:
-                    agent_list.append(agents.DockerAgent('multiagentlearning/navocado', port=(20000+(env_idx * 4 + i))))
+                    agent_list.append(agents.SimpleAgent())
 
         self.env = pommerman.make(env_id, agent_list)
         self.env = PommeWrapper(self.env, self.training_agents)
