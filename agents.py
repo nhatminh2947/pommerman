@@ -19,14 +19,23 @@ class StaticAgent(BaseAgent):
     def act(self, obs, action_space):
         return Action.Stop.value
 
-
-class RNDAgent(BaseAgent):
-    def __init__(self, input_size, output_size, gamma, training, lam=0.95, learning_rate=1e-4, ent_coef=0.01,
-                 clip_grad_norm=0.5, epoch=3, batch_size=128, ppo_eps=0.1, update_proportion=0.25, use_gae=True,
-                 use_cuda=False, use_noisy_net=False):
-        super().__init__()
-        self.model = CnnActorCriticNetwork(input_size, output_size, use_noisy_net).to("cuda")
-        self.training = training
+class RNDAgent(object):
+    def __init__(
+            self,
+            input_size,
+            output_size,
+            gamma,
+            lam=0.95,
+            learning_rate=1e-4,
+            ent_coef=0.01,
+            clip_grad_norm=0.5,
+            epoch=3,
+            batch_size=128,
+            ppo_eps=0.1,
+            update_proportion=0.25,
+            use_gae=True,
+            use_cuda=False,
+            use_noisy_net=False):
         self.output_size = output_size
         self.input_size = input_size
         self.gamma = gamma
@@ -44,6 +53,8 @@ class RNDAgent(BaseAgent):
         self.optimizer = optim.Adam(list(self.model.parameters()) + list(self.rnd.predictor.parameters()),
                                     lr=learning_rate)
         self.rnd = self.rnd.to(self.device)
+        self.model = CnnActorCriticNetwork(input_size, output_size, use_noisy_net).to(self.device)
+
         self.n_alive = 3
 
         self.model = self.model.to(self.device)

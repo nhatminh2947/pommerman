@@ -24,6 +24,7 @@ def main():
 
     use_cuda = True
     is_render = True
+
     model_path = './nv03/models/{}.model'.format(config_id)
     predictor_path = './nv03/models/{}.pred'.format(config_id)
     target_path = './nv03/models/{}.target'.format(config_id)

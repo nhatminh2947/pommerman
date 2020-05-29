@@ -1,3 +1,11 @@
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from distributions import Bernoulli, Categorical, DiagGaussian
+from utils import init
+
 import math
 
 import numpy as np
@@ -6,63 +14,222 @@ import torch.nn as nn
 from torch.nn import init
 
 
-class NoisyLinear(nn.Module):
-    """Factorised Gaussian NoisyNet"""
-
-    def __init__(self, in_features, out_features, sigma0=0.5):
-        super().__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.weight = nn.Parameter(torch.Tensor(out_features, in_features))
-        self.bias = nn.Parameter(torch.Tensor(out_features))
-        self.noisy_weight = nn.Parameter(
-            torch.Tensor(out_features, in_features))
-        self.noisy_bias = nn.Parameter(torch.Tensor(out_features))
-        self.noise_std = sigma0 / math.sqrt(self.in_features)
-
-        self.reset_parameters()
-        self.register_noise()
-
-    def register_noise(self):
-        in_noise = torch.FloatTensor(self.in_features)
-        out_noise = torch.FloatTensor(self.out_features)
-        noise = torch.FloatTensor(self.out_features, self.in_features)
-        self.register_buffer('in_noise', in_noise)
-        self.register_buffer('out_noise', out_noise)
-        self.register_buffer('noise', noise)
-
-    def sample_noise(self):
-        self.in_noise.normal_(0, self.noise_std)
-        self.out_noise.normal_(0, self.noise_std)
-        self.noise = torch.mm(
-            self.out_noise.view(-1, 1), self.in_noise.view(1, -1))
-
-    def reset_parameters(self):
-        stdv = 1. / math.sqrt(self.weight.size(1))
-        self.weight.data.uniform_(-stdv, stdv)
-        self.noisy_weight.data.uniform_(-stdv, stdv)
-        if self.bias is not None:
-            self.bias.data.uniform_(-stdv, stdv)
-            self.noisy_bias.data.uniform_(-stdv, stdv)
-
+class Flatten(nn.Module):
     def forward(self, x):
-        """
-        Note: noise will be updated if x is not volatile
-        """
-        normal_y = nn.functional.linear(x, self.weight, self.bias)
-        if self.training:
-            # update the noise once per update
-            self.sample_noise()
+        return x.view(x.size(0), -1)
 
-        noisy_weight = self.noisy_weight * self.noise
-        noisy_bias = self.noisy_bias * self.out_noise
-        noisy_y = nn.functional.linear(x, noisy_weight, noisy_bias)
-        return noisy_y + normal_y
 
-    def __repr__(self):
-        return self.__class__.__name__ + '(' \
-               + 'in_features=' + str(self.in_features) \
-               + ', out_features=' + str(self.out_features) + ')'
+class Policy(nn.Module):
+    def __init__(self, obs_shape, action_space, base=None, base_kwargs=None):
+        super(Policy, self).__init__()
+        if base_kwargs is None:
+            base_kwargs = {}
+        if base is None:
+            if len(obs_shape) == 3:
+                base = CNNBase
+            elif len(obs_shape) == 1:
+                base = MLPBase
+            else:
+                raise NotImplementedError
+
+        self.base = base(obs_shape[0], **base_kwargs)
+
+        if action_space.__class__.__name__ == "Discrete":
+            num_outputs = action_space.n
+            self.dist = Categorical(self.base.output_size, num_outputs)
+        elif action_space.__class__.__name__ == "Box":
+            num_outputs = action_space.shape[0]
+            self.dist = DiagGaussian(self.base.output_size, num_outputs)
+        elif action_space.__class__.__name__ == "MultiBinary":
+            num_outputs = action_space.shape[0]
+            self.dist = Bernoulli(self.base.output_size, num_outputs)
+        else:
+            raise NotImplementedError
+
+    @property
+    def is_recurrent(self):
+        return self.base.is_recurrent
+
+    @property
+    def recurrent_hidden_state_size(self):
+        """Size of rnn_hx."""
+        return self.base.recurrent_hidden_state_size
+
+    def forward(self, inputs, rnn_hxs, masks):
+        raise NotImplementedError
+
+    def act(self, inputs, rnn_hxs, masks, deterministic=False):
+        value, actor_features, rnn_hxs = self.base(inputs, rnn_hxs, masks)
+        dist = self.dist(actor_features)
+
+        if deterministic:
+            action = dist.mode()
+        else:
+            action = dist.sample()
+
+        action_log_probs = dist.log_probs(action)
+        dist_entropy = dist.entropy().mean()
+
+        return value, action, action_log_probs, rnn_hxs
+
+    def get_value(self, inputs, rnn_hxs, masks):
+        value, _, _ = self.base(inputs, rnn_hxs, masks)
+        return value
+
+    def evaluate_actions(self, inputs, rnn_hxs, masks, action):
+        value, actor_features, rnn_hxs = self.base(inputs, rnn_hxs, masks)
+        dist = self.dist(actor_features)
+
+        action_log_probs = dist.log_probs(action)
+        dist_entropy = dist.entropy().mean()
+
+        return value, action_log_probs, dist_entropy, rnn_hxs
+
+
+class NNBase(nn.Module):
+    def __init__(self, recurrent, recurrent_input_size, hidden_size):
+        super(NNBase, self).__init__()
+
+        self._hidden_size = hidden_size
+        self._recurrent = recurrent
+
+        if recurrent:
+            self.gru = nn.GRU(recurrent_input_size, hidden_size)
+            for name, param in self.gru.named_parameters():
+                if 'bias' in name:
+                    nn.init.constant_(param, 0)
+                elif 'weight' in name:
+                    nn.init.orthogonal_(param)
+
+    @property
+    def is_recurrent(self):
+        return self._recurrent
+
+    @property
+    def recurrent_hidden_state_size(self):
+        if self._recurrent:
+            return self._hidden_size
+        return 1
+
+    @property
+    def output_size(self):
+        return self._hidden_size
+
+    def _forward_gru(self, x, hxs, masks):
+        if x.size(0) == hxs.size(0):
+            x, hxs = self.gru(x.unsqueeze(0), (hxs * masks).unsqueeze(0))
+            x = x.squeeze(0)
+            hxs = hxs.squeeze(0)
+        else:
+            # x is a (T, N, -1) tensor that has been flatten to (T * N, -1)
+            N = hxs.size(0)
+            T = int(x.size(0) / N)
+
+            # unflatten
+            x = x.view(T, N, x.size(1))
+
+            # Same deal with masks
+            masks = masks.view(T, N)
+
+            # Let's figure out which steps in the sequence have a zero for any agent
+            # We will always assume t=0 has a zero in it as that makes the logic cleaner
+            has_zeros = ((masks[1:] == 0.0).any(dim=-1).nonzero().squeeze().cpu())
+
+            # +1 to correct the masks[1:]
+            if has_zeros.dim() == 0:
+                # Deal with scalar
+                has_zeros = [has_zeros.item() + 1]
+            else:
+                has_zeros = (has_zeros + 1).numpy().tolist()
+
+            # add t=0 and t=T to the list
+            has_zeros = [0] + has_zeros + [T]
+
+            hxs = hxs.unsqueeze(0)
+            outputs = []
+            for i in range(len(has_zeros) - 1):
+                # We can now process steps that don't have any zeros in masks together!
+                # This is much faster
+                start_idx = has_zeros[i]
+                end_idx = has_zeros[i + 1]
+
+                rnn_scores, hxs = self.gru(
+                    x[start_idx:end_idx],
+                    hxs * masks[start_idx].view(1, -1, 1))
+
+                outputs.append(rnn_scores)
+
+            # assert len(outputs) == T
+            # x is a (T, N, -1) tensor
+            x = torch.cat(outputs, dim=0)
+            # flatten
+            x = x.view(T * N, -1)
+            hxs = hxs.squeeze(0)
+
+        return x, hxs
+
+
+class CNNBase(NNBase):
+    def __init__(self, num_inputs, recurrent=False, hidden_size=512):
+        super(CNNBase, self).__init__(recurrent, hidden_size, hidden_size)
+
+        init_ = lambda m: init(m, nn.init.orthogonal_, lambda x: nn.init.
+                               constant_(x, 0), nn.init.calculate_gain('relu'))
+
+        self.main = nn.Sequential(
+            init_(nn.Conv2d(num_inputs, 32, 8, stride=4)), nn.ReLU(),
+            init_(nn.Conv2d(32, 64, 4, stride=2)), nn.ReLU(),
+            init_(nn.Conv2d(64, 32, 3, stride=1)), nn.ReLU(), Flatten(),
+            init_(nn.Linear(32 * 7 * 7, hidden_size)), nn.ReLU())
+
+        init_ = lambda m: init(m, nn.init.orthogonal_, lambda x: nn.init.
+                               constant_(x, 0))
+
+        self.critic_linear = init_(nn.Linear(hidden_size, 1))
+
+        self.train()
+
+    def forward(self, inputs, rnn_hxs, masks):
+        x = self.main(inputs / 255.0)
+
+        if self.is_recurrent:
+            x, rnn_hxs = self._forward_gru(x, rnn_hxs, masks)
+
+        return self.critic_linear(x), x, rnn_hxs
+
+
+class MLPBase(NNBase):
+    def __init__(self, num_inputs, recurrent=False, hidden_size=64):
+        super(MLPBase, self).__init__(recurrent, num_inputs, hidden_size)
+
+        if recurrent:
+            num_inputs = hidden_size
+
+        init_ = lambda m: init(m, nn.init.orthogonal_, lambda x: nn.init.
+                               constant_(x, 0), np.sqrt(2))
+
+        self.actor = nn.Sequential(
+            init_(nn.Linear(num_inputs, hidden_size)), nn.Tanh(),
+            init_(nn.Linear(hidden_size, hidden_size)), nn.Tanh())
+
+        self.critic = nn.Sequential(
+            init_(nn.Linear(num_inputs, hidden_size)), nn.Tanh(),
+            init_(nn.Linear(hidden_size, hidden_size)), nn.Tanh())
+
+        self.critic_linear = init_(nn.Linear(hidden_size, 1))
+
+        self.train()
+
+    def forward(self, inputs, rnn_hxs, masks):
+        x = inputs
+
+        if self.is_recurrent:
+            x, rnn_hxs = self._forward_gru(x, rnn_hxs, masks)
+
+        hidden_critic = self.critic(x)
+        hidden_actor = self.actor(x)
+
+        return self.critic_linear(hidden_critic), hidden_actor, rnn_hxs
 
 
 class Flatten(nn.Module):
@@ -73,12 +240,6 @@ class Flatten(nn.Module):
 class CnnActorCriticNetwork(nn.Module):
     def __init__(self, in_channels, output_size, use_noisy_net=False):
         super(CnnActorCriticNetwork, self).__init__()
-
-        if use_noisy_net:
-            print('use NoisyNet')
-            linear = NoisyLinear
-        else:
-            linear = nn.Linear
 
         self.feature = nn.Sequential(
             nn.Conv2d(
@@ -102,29 +263,25 @@ class CnnActorCriticNetwork(nn.Module):
                 stride=1),
             nn.ReLU(),
             Flatten(),
-            linear(
-                9 * 9 * 128,
-                256),
+            nn.Linear(9 * 9 * 128, 256),
             nn.ReLU(),
-            linear(
-                256,
-                512),
+            nn.Linear(256, 512),
             nn.ReLU()
         )
 
         self.actor = nn.Sequential(
-            linear(512, 256),
+            nn.Linear(512, 256),
             nn.ReLU(),
-            linear(256, output_size)
+            nn.Linear(256, output_size)
         )
 
         self.extra_layer = nn.Sequential(
-            linear(512, 512),
+            nn.Linear(512, 512),
             nn.ReLU()
         )
 
-        self.critic_ext = linear(512, 1)
-        self.critic_int = linear(512, 1)
+        self.critic_ext = nn.Linear(512, 1)
+        self.critic_int = nn.Linear(512, 1)
 
         for p in self.modules():
             if isinstance(p, nn.Conv2d):
