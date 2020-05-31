@@ -19,6 +19,10 @@ from envs import make_vec_envs
 from model import Policy
 from storage import RolloutStorage
 from arguments import get_args
+from model import ActorCriticNetwork
+from gym import spaces
+
+OBS_SPACE_PER_AGENT = spaces.Box(low=0, high=20, shape=(16, 11, 11))
 
 
 def main():
@@ -39,18 +43,18 @@ def main():
     torch.set_num_threads(1)
     device = torch.device("cuda:0" if args.cuda else "cpu")
 
-    envs = make_vec_envs(args.env_name, args.seed, args.num_processes,
-                         args.gamma, args.log_dir, device, False)
+    envs = make_vec_envs(args.env_name, args.seed, args.num_processes, args.log_dir, device, False)
 
-    actor_critic = Policy(
-        envs.observation_space.shape,
+    policy = Policy(
+        OBS_SPACE_PER_AGENT.shape,
         envs.action_space,
+        model=ActorCriticNetwork,
         base_kwargs={'recurrent': args.recurrent_policy})
-    actor_critic.to(device)
+    policy.to(device)
 
     if args.algo == 'a2c':
         agent = A2C_ACKTR(
-            actor_critic,
+            policy,
             args.value_loss_coef,
             args.entropy_coef,
             lr=args.lr,
@@ -59,7 +63,7 @@ def main():
             max_grad_norm=args.max_grad_norm)
     elif args.algo == 'ppo':
         agent = PPO(
-            actor_critic,
+            policy,
             args.clip_param,
             args.ppo_epoch,
             args.num_mini_batch,
@@ -69,17 +73,18 @@ def main():
             eps=args.eps,
             max_grad_norm=args.max_grad_norm)
     elif args.algo == 'acktr':
-        agent = A2C_ACKTR(actor_critic, args.value_loss_coef, args.entropy_coef, acktr=True)
+        agent = A2C_ACKTR(policy, args.value_loss_coef, args.entropy_coef, acktr=True)
 
     rollouts = RolloutStorage(args.num_steps, args.num_processes,
-                              envs.observation_space.shape, envs.action_space,
-                              actor_critic.recurrent_hidden_state_size)
+                              OBS_SPACE_PER_AGENT.shape, envs.action_space,
+                              policy.recurrent_hidden_state_size)
 
-    obs = envs.reset()
-    rollouts.obs[0].copy_(obs)
+    obs = envs.reset()  # tuple of 4 observation
+    rollouts.obs[0].copy_(obs)  # store obs[0] for training
     rollouts.to(device)
 
-    episode_rewards = deque(maxlen=10)
+    episode_rewards = deque(maxlen=100)
+    episode_step = deque(maxlen=100)
 
     start = time.time()
     num_updates = int(
@@ -95,7 +100,7 @@ def main():
         for step in range(args.num_steps):
             # Sample actions
             with torch.no_grad():
-                value, action, action_log_prob, recurrent_hidden_states = actor_critic.act(
+                value, action, action_log_prob, recurrent_hidden_states = policy.act(
                     rollouts.obs[step], rollouts.recurrent_hidden_states[step],
                     rollouts.masks[step])
 
@@ -104,7 +109,8 @@ def main():
 
             for info in infos:
                 if 'episode' in info.keys():
-                    episode_rewards.append(info['episode']['r'])
+                    episode_rewards.append(info['episode']['reward'])
+                    episode_step.append(info['episode']['step'])
 
             # If done then clean the history of observations.
             masks = torch.tensor([[0.0] if done_ else [1.0] for done_ in done])
@@ -113,7 +119,7 @@ def main():
             rollouts.insert(obs, recurrent_hidden_states, action, action_log_prob, value, reward, masks, bad_masks)
 
         with torch.no_grad():
-            next_value = actor_critic.get_value(
+            next_value = policy.get_value(
                 rollouts.obs[-1], rollouts.recurrent_hidden_states[-1],
                 rollouts.masks[-1]).detach()
 
@@ -133,26 +139,27 @@ def main():
                 pass
 
             torch.save([
-                actor_critic,
+                policy,
                 getattr(utils.get_vec_normalize(envs), 'ob_rms', None)
             ], os.path.join(save_path, args.env_name + ".pt"))
 
         if j % args.log_interval == 0 and len(episode_rewards) > 1:
             total_num_steps = (j + 1) * args.num_processes * args.num_steps
             end = time.time()
-            print(
-                "Updates {}, num timesteps {}, FPS {} \n Last {} training episodes: mean/median reward {:.1f}/{:.1f}, min/max reward {:.1f}/{:.1f}\n"
-                    .format(j, total_num_steps,
-                            int(total_num_steps / (end - start)),
-                            len(episode_rewards), np.mean(episode_rewards),
-                            np.median(episode_rewards), np.min(episode_rewards),
-                            np.max(episode_rewards), dist_entropy, value_loss,
-                            action_loss))
+            print("Updates {}, num timesteps {}, FPS {}"
+                  .format(j, total_num_steps, int(total_num_steps / (end - start))))
+            print("\tLast {} training episodes:".format(len(episode_rewards)))
+            print("\t\tmean/median reward {:.1f}/{:.1f}, min/max reward {:.1f}/{:.1f}"
+                  .format(np.mean(episode_rewards), np.median(episode_rewards), np.min(episode_rewards),
+                          np.max(episode_rewards), dist_entropy, value_loss, action_loss))
+            print("\t\tmean/median step {:.1f}/{:.1f}, min/max step {:.1f}/{:.1f}"
+                  .format(np.mean(episode_step), np.median(episode_step), np.min(episode_step),
+                          np.max(episode_step), dist_entropy, value_loss, action_loss))
+            print()
 
-        if (args.eval_interval is not None and len(episode_rewards) > 1
-                and j % args.eval_interval == 0):
-            ob_rms = utils.get_vec_normalize(envs).ob_rms
-            # evaluate(actor_critic, ob_rms, args.env_name, args.seed, args.num_processes, eval_log_dir, device)
+            if args.eval_interval is not None and len(episode_rewards) > 1 and j % args.eval_interval == 0:
+                ob_rms = utils.get_vec_normalize(envs).ob_rms
+                evaluate(policy, ob_rms, args.env_name, args.seed, args.num_processes, eval_log_dir, device)
 
 
 if __name__ == "__main__":

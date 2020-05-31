@@ -3,7 +3,8 @@ import os
 
 import torch
 import torch.nn as nn
-
+from pommerman import constants
+import numpy as np
 from envs import VecNormalize
 
 
@@ -63,3 +64,48 @@ def cleanup_log_dir(log_dir):
         files = glob.glob(os.path.join(log_dir, '*.monitor.csv'))
         for f in files:
             os.remove(f)
+
+
+def featurize(obs):
+    id = 0
+    features = np.zeros(shape=(16, 11, 11))
+    # print(obs)
+    for item in constants.Item:
+        if item in [constants.Item.Bomb,
+                    constants.Item.Flames,
+                    constants.Item.Agent0,
+                    constants.Item.Agent1,
+                    constants.Item.Agent2,
+                    constants.Item.Agent3,
+                    constants.Item.AgentDummy]:
+            continue
+        # print("item:", item)
+        # print("board:", obs["board"])
+
+        features[id, :, :][obs["board"] == item.value] = 1
+        id += 1
+
+    for feature in ["flame_life", "bomb_life", "bomb_blast_strength"]:
+        features[id, :, :] = obs[feature]
+        id += 1
+
+    features[id, :, :][obs["position"]] = 1
+    id += 1
+
+    features[id, :, :][obs["board"] == obs["teammate"].value] = 1
+    id += 1
+
+    for enemy in obs["enemies"]:
+        features[id, :, :][obs["board"] == enemy.value] = 1
+    id += 1
+
+    features[id, :, :] = np.full(shape=(11, 11), fill_value=obs["ammo"])
+    id += 1
+
+    features[id, :, :] = np.full(shape=(11, 11), fill_value=obs["blast_strength"])
+    id += 1
+
+    features[id, :, :] = np.full(shape=(11, 11), fill_value=(1 if obs["can_kick"] else 0))
+    id += 1
+
+    return features

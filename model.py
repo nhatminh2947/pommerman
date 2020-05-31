@@ -20,46 +20,31 @@ class Flatten(nn.Module):
 
 
 class Policy(nn.Module):
-    def __init__(self, obs_shape, action_space, base=None, base_kwargs=None):
+    def __init__(self, obs_shape, action_space, model, base_kwargs=None):
         super(Policy, self).__init__()
         if base_kwargs is None:
             base_kwargs = {}
-        if base is None:
-            if len(obs_shape) == 3:
-                base = CNNBase
-            elif len(obs_shape) == 1:
-                base = MLPBase
-            else:
-                raise NotImplementedError
 
-        self.base = base(obs_shape[0], **base_kwargs)
+        self.model = model(obs_shape[0], **base_kwargs)
 
-        if action_space.__class__.__name__ == "Discrete":
-            num_outputs = action_space.n
-            self.dist = Categorical(self.base.output_size, num_outputs)
-        elif action_space.__class__.__name__ == "Box":
-            num_outputs = action_space.shape[0]
-            self.dist = DiagGaussian(self.base.output_size, num_outputs)
-        elif action_space.__class__.__name__ == "MultiBinary":
-            num_outputs = action_space.shape[0]
-            self.dist = Bernoulli(self.base.output_size, num_outputs)
-        else:
-            raise NotImplementedError
+        assert action_space.__class__.__name__ == "Discrete"
+        num_outputs = action_space.n
+        self.dist = Categorical(self.model.output_size, num_outputs)
 
     @property
     def is_recurrent(self):
-        return self.base.is_recurrent
+        return self.model.is_recurrent
 
     @property
     def recurrent_hidden_state_size(self):
         """Size of rnn_hx."""
-        return self.base.recurrent_hidden_state_size
+        return self.model.recurrent_hidden_state_size
 
     def forward(self, inputs, rnn_hxs, masks):
         raise NotImplementedError
 
     def act(self, inputs, rnn_hxs, masks, deterministic=False):
-        value, actor_features, rnn_hxs = self.base(inputs, rnn_hxs, masks)
+        value, actor_features, rnn_hxs = self.model(inputs, rnn_hxs, masks)
         dist = self.dist(actor_features)
 
         if deterministic:
@@ -73,17 +58,23 @@ class Policy(nn.Module):
         return value, action, action_log_probs, rnn_hxs
 
     def get_value(self, inputs, rnn_hxs, masks):
-        value, _, _ = self.base(inputs, rnn_hxs, masks)
+        value, _, _ = self.model(inputs, rnn_hxs, masks)
         return value
 
     def evaluate_actions(self, inputs, rnn_hxs, masks, action):
-        value, actor_features, rnn_hxs = self.base(inputs, rnn_hxs, masks)
+        value, actor_features, rnn_hxs = self.model(inputs, rnn_hxs, masks)
         dist = self.dist(actor_features)
 
         action_log_probs = dist.log_probs(action)
         dist_entropy = dist.entropy().mean()
 
         return value, action_log_probs, dist_entropy, rnn_hxs
+
+
+class StaticPolicy(Policy):
+
+    def forward(self, inputs, rnn_hxs, masks):
+        return 0
 
 
 class NNBase(nn.Module):
@@ -198,52 +189,18 @@ class CNNBase(NNBase):
         return self.critic_linear(x), x, rnn_hxs
 
 
-class MLPBase(NNBase):
-    def __init__(self, num_inputs, recurrent=False, hidden_size=64):
-        super(MLPBase, self).__init__(recurrent, num_inputs, hidden_size)
-
-        if recurrent:
-            num_inputs = hidden_size
-
-        init_ = lambda m: init(m, nn.init.orthogonal_, lambda x: nn.init.
-                               constant_(x, 0), np.sqrt(2))
-
-        self.actor = nn.Sequential(
-            init_(nn.Linear(num_inputs, hidden_size)), nn.Tanh(),
-            init_(nn.Linear(hidden_size, hidden_size)), nn.Tanh())
-
-        self.critic = nn.Sequential(
-            init_(nn.Linear(num_inputs, hidden_size)), nn.Tanh(),
-            init_(nn.Linear(hidden_size, hidden_size)), nn.Tanh())
-
-        self.critic_linear = init_(nn.Linear(hidden_size, 1))
-
-        self.train()
-
-    def forward(self, inputs, rnn_hxs, masks):
-        x = inputs
-
-        if self.is_recurrent:
-            x, rnn_hxs = self._forward_gru(x, rnn_hxs, masks)
-
-        hidden_critic = self.critic(x)
-        hidden_actor = self.actor(x)
-
-        return self.critic_linear(hidden_critic), hidden_actor, rnn_hxs
-
-
 class Flatten(nn.Module):
     def forward(self, input):
         return input.view(input.size(0), -1)
 
 
-class CnnActorCriticNetwork(nn.Module):
-    def __init__(self, in_channels, output_size, use_noisy_net=False):
-        super(CnnActorCriticNetwork, self).__init__()
+class ActorCriticNetwork(NNBase):
+    def __init__(self, num_inputs, recurrent=False, hidden_size=512, is_rnd=False):
+        super(ActorCriticNetwork, self).__init__(recurrent, num_inputs, hidden_size)
 
-        self.feature = nn.Sequential(
+        self.shared_layers = nn.Sequential(
             nn.Conv2d(
-                in_channels=in_channels,
+                in_channels=num_inputs,
                 out_channels=32,
                 kernel_size=3,
                 padding=1,
@@ -270,9 +227,8 @@ class CnnActorCriticNetwork(nn.Module):
         )
 
         self.actor = nn.Sequential(
-            nn.Linear(512, 256),
-            nn.ReLU(),
-            nn.Linear(256, output_size)
+            nn.Linear(512, hidden_size),
+            nn.ReLU()
         )
 
         self.extra_layer = nn.Sequential(
@@ -281,7 +237,8 @@ class CnnActorCriticNetwork(nn.Module):
         )
 
         self.critic_ext = nn.Linear(512, 1)
-        self.critic_int = nn.Linear(512, 1)
+        if is_rnd:
+            self.critic_int = nn.Linear(512, 1)
 
         for p in self.modules():
             if isinstance(p, nn.Conv2d):
@@ -295,8 +252,9 @@ class CnnActorCriticNetwork(nn.Module):
         init.orthogonal_(self.critic_ext.weight, 0.01)
         self.critic_ext.bias.data.zero_()
 
-        init.orthogonal_(self.critic_int.weight, 0.01)
-        self.critic_int.bias.data.zero_()
+        if is_rnd:
+            init.orthogonal_(self.critic_int.weight, 0.01)
+            self.critic_int.bias.data.zero_()
 
         for i in range(len(self.actor)):
             if type(self.actor[i]) == nn.Linear:
@@ -308,12 +266,15 @@ class CnnActorCriticNetwork(nn.Module):
                 init.orthogonal_(self.extra_layer[i].weight, 0.1)
                 self.extra_layer[i].bias.data.zero_()
 
-    def forward(self, state):
-        x = self.feature(state)
-        policy = self.actor(x)
-        value_ext = self.critic_ext(self.extra_layer(x) + x)
-        value_int = self.critic_int(self.extra_layer(x) + x)
-        return policy, value_ext, value_int
+        self.train()
+
+    def forward(self, inputs, rnn_hxs, masks):
+        x = self.shared_layers(inputs)
+
+        if self.is_recurrent:
+            x, rnn_hxs = self._forward_gru(x, rnn_hxs, masks)
+
+        return self.critic_ext(self.extra_layer(x) + x), self.actor(x), rnn_hxs
 
 
 class RNDModel(nn.Module):

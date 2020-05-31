@@ -9,7 +9,7 @@ from torch.distributions.categorical import Categorical
 from torchsummary import summary
 
 import utils
-from model import CnnActorCriticNetwork, RNDModel
+from model import ActorCriticNetwork, RNDModel
 from utils import global_grad_norm_
 
 
@@ -53,7 +53,7 @@ class RNDAgent(object):
         self.optimizer = optim.Adam(list(self.model.parameters()) + list(self.rnd.predictor.parameters()),
                                     lr=learning_rate)
         self.rnd = self.rnd.to(self.device)
-        self.model = CnnActorCriticNetwork(input_size, output_size, use_noisy_net).to(self.device)
+        self.model = ActorCriticNetwork(input_size, output_size, use_noisy_net).to(self.device)
 
         self.n_alive = 3
 

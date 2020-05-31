@@ -5,15 +5,16 @@ import numpy as np
 import torch
 from gym.spaces.box import Box
 import pommerman
-from pommerman import agents
-
+from pommerman import agents, constants
+from gym import spaces
 from baselines import bench
 from baselines.common.atari_wrappers import make_atari, wrap_deepmind
 from baselines.common.vec_env import VecEnvWrapper
 from baselines.common.vec_env.dummy_vec_env import DummyVecEnv
 from baselines.common.vec_env.shmem_vec_env import ShmemVecEnv
-from baselines.common.vec_env.vec_normalize import \
-    VecNormalize as VecNormalize_
+from baselines.common.vec_env.vec_normalize import VecNormalize as VecNormalize_
+
+import utils
 
 try:
     import dm_control2gym
@@ -29,6 +30,71 @@ try:
     import pybullet_envs
 except ImportError:
     pass
+
+
+class PommeSimpleWrapper(gym.Wrapper):
+    def __init__(self, env):
+        super().__init__(env)
+        self.training_agent = 0
+        self.observation_space = spaces.Box(low=0, high=20, shape=(16, 11, 11))
+        self.episode = {
+            'reward': 0,
+            'step': 0
+        }
+
+    def step(self, action):
+        actions = self.env.act(self.env.get_observations())
+        actions[0] = action
+        observation, reward, done, info = self.env.step(actions)
+
+        if (self.training_agent + constants.Item.Agent0.value) not in observation[self.training_agent]['alive']:
+            done = True
+
+        reward = self.reward(observation[self.training_agent], done)
+        self.episode['reward'] += reward
+        self.episode['step'] += 1
+
+        if done:
+            info['episode'] = self.episode
+
+        return self.observation(observation), reward, done, info
+
+    def observation(self, obs):
+        return utils.featurize(obs[self.training_agent])
+
+    def reward(self, obs, done):
+        if (self.training_agent + constants.Item.Agent0.value) not in obs['alive']:  # lose
+            return -1
+
+        if done:
+            if len(obs['alive']) == 1:
+                return 1  # win
+            return -1  # tie
+
+        return 0  # incomplete
+
+    def reset(self, **kwargs):
+        observation = self.env.reset(**kwargs)
+        self.episode = {
+            'reward': 0,
+            'step': 0
+        }
+
+        return self.observation(observation)
+
+
+class PommeWrapper(gym.ObservationWrapper):
+    def __init__(self, env):
+        super().__init__(env)
+        self.observation_space = spaces.Dict({
+            i: spaces.Box(low=0, high=20, shape=(16, 11, 11)) for i in range(4)
+        })
+
+    def observation(self, obs):
+        wrapped_obs = {}
+        for i in range(4):
+            wrapped_obs[i] = utils.featurize(obs[i])
+        return wrapped_obs
 
 
 def make_env(env_id, seed, rank, log_dir, allow_early_resets):
@@ -80,6 +146,7 @@ def make_env(env_id, seed, rank, log_dir, allow_early_resets):
         ]
         env = pommerman.make(env_id, agent_list=agent_list)
         env.seed(seed + rank)
+        env = PommeSimpleWrapper(env)
 
         return env
 
@@ -89,11 +156,9 @@ def make_env(env_id, seed, rank, log_dir, allow_early_resets):
 def make_vec_envs(env_name,
                   seed,
                   num_processes,
-                  gamma,
                   log_dir,
                   device,
-                  allow_early_resets,
-                  num_frame_stack=None):
+                  allow_early_resets):
     envs = [
         make_env(env_name, seed, i, log_dir, allow_early_resets)
         for i in range(num_processes)
@@ -104,18 +169,7 @@ def make_vec_envs(env_name,
     else:
         envs = DummyVecEnv(envs)
 
-    if len(envs.observation_space.shape) == 1:
-        if gamma is None:
-            envs = VecNormalize(envs, ret=False)
-        else:
-            envs = VecNormalize(envs, gamma=gamma)
-
     envs = VecPyTorch(envs, device)
-
-    if num_frame_stack is not None:
-        envs = VecPyTorchFrameStack(envs, num_frame_stack, device)
-    elif len(envs.observation_space.shape) == 3:
-        envs = VecPyTorchFrameStack(envs, 4, device)
 
     return envs
 
@@ -178,6 +232,7 @@ class VecPyTorch(VecEnvWrapper):
         # TODO: Fix data types
 
     def reset(self):
+        print('VecPyTorch reset')
         obs = self.venv.reset()
         obs = torch.from_numpy(obs).float().to(self.device)
         return obs
