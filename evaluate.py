@@ -3,12 +3,14 @@ import torch
 
 import utils
 from envs import make_vec_envs
+from model import Policy, ActorCriticNetwork
+import envs
+from gym import spaces
 
 
-def evaluate(actor_critic, ob_rms, env_name, seed, num_processes, eval_log_dir,
-             device):
+def evaluate(actor_critic, ob_rms, env_name, seed, num_processes, device):
     eval_envs = make_vec_envs(env_name, seed + num_processes, num_processes,
-                              eval_log_dir, device, True)
+                              None, device, True)
 
     vec_norm = utils.get_vec_normalize(eval_envs)
     if vec_norm is not None:
@@ -40,9 +42,20 @@ def evaluate(actor_critic, ob_rms, env_name, seed, num_processes, eval_log_dir,
 
         for info in infos:
             if 'episode' in info.keys():
-                eval_episode_rewards.append(info['episode']['r'])
+                eval_episode_rewards.append(info['episode']['reward'])
 
     eval_envs.close()
 
     print(" Evaluation using {} episodes: mean reward {:.5f}\n".format(
         len(eval_episode_rewards), np.mean(eval_episode_rewards)))
+
+
+if __name__ == '__main__':
+    device = torch.device("cuda")
+    checkpoint = torch.load('./trained_models/ppo/abc/PommeTeam-v0.pt')
+
+    policy = checkpoint[0]
+    policy.to(device)
+
+    ob_rms = checkpoint[1]
+    evaluate(policy, ob_rms, 'PommeTeam-v0', 2947, 1, device)

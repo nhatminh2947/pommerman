@@ -6,6 +6,9 @@ import torch.nn as nn
 from pommerman import constants
 import numpy as np
 from envs import VecNormalize
+from gym import spaces
+
+OBS_SPACE_PER_AGENT = spaces.Box(low=0, high=20, shape=(16, 11, 11))
 
 
 # Get a render function

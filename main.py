@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.utils.tensorboard import SummaryWriter
 
 import utils
 import arguments
@@ -22,10 +23,10 @@ from arguments import get_args
 from model import ActorCriticNetwork
 from gym import spaces
 
-OBS_SPACE_PER_AGENT = spaces.Box(low=0, high=20, shape=(16, 11, 11))
-
 
 def main():
+    writer = SummaryWriter()
+
     args = get_args()
 
     torch.manual_seed(args.seed)
@@ -46,7 +47,7 @@ def main():
     envs = make_vec_envs(args.env_name, args.seed, args.num_processes, args.log_dir, device, False)
 
     policy = Policy(
-        OBS_SPACE_PER_AGENT.shape,
+        utils.OBS_SPACE_PER_AGENT.shape,
         envs.action_space,
         model=ActorCriticNetwork,
         base_kwargs={'recurrent': args.recurrent_policy})
@@ -75,16 +76,18 @@ def main():
     elif args.algo == 'acktr':
         agent = A2C_ACKTR(policy, args.value_loss_coef, args.entropy_coef, acktr=True)
 
-    rollouts = RolloutStorage(args.num_steps, args.num_processes,
-                              OBS_SPACE_PER_AGENT.shape, envs.action_space,
-                              policy.recurrent_hidden_state_size)
+    rollouts = RolloutStorage(args.num_steps, args.num_processes, utils.OBS_SPACE_PER_AGENT.shape,
+                              envs.action_space, policy.recurrent_hidden_state_size)
 
     obs = envs.reset()  # tuple of 4 observation
     rollouts.obs[0].copy_(obs)  # store obs[0] for training
     rollouts.to(device)
 
-    episode_rewards = deque(maxlen=100)
-    episode_step = deque(maxlen=100)
+    episode = {
+        "reward": deque(maxlen=100),
+        "step": deque(maxlen=100),
+        "num_bombs": deque(maxlen=100)
+    }
 
     start = time.time()
     num_updates = int(
@@ -109,8 +112,8 @@ def main():
 
             for info in infos:
                 if 'episode' in info.keys():
-                    episode_rewards.append(info['episode']['reward'])
-                    episode_step.append(info['episode']['step'])
+                    for key in info['episode'].keys():
+                        episode[key].append(info['episode'][key])
 
             # If done then clean the history of observations.
             masks = torch.tensor([[0.0] if done_ else [1.0] for done_ in done])
@@ -143,23 +146,33 @@ def main():
                 getattr(utils.get_vec_normalize(envs), 'ob_rms', None)
             ], os.path.join(save_path, args.env_name + ".pt"))
 
-        if j % args.log_interval == 0 and len(episode_rewards) > 1:
+        if j % args.log_interval == 0 and len(episode['reward']) > 1:
             total_num_steps = (j + 1) * args.num_processes * args.num_steps
             end = time.time()
             print("Updates {}, num timesteps {}, FPS {}"
                   .format(j, total_num_steps, int(total_num_steps / (end - start))))
-            print("\tLast {} training episodes:".format(len(episode_rewards)))
-            print("\t\tmean/median reward {:.1f}/{:.1f}, min/max reward {:.1f}/{:.1f}"
-                  .format(np.mean(episode_rewards), np.median(episode_rewards), np.min(episode_rewards),
-                          np.max(episode_rewards), dist_entropy, value_loss, action_loss))
-            print("\t\tmean/median step {:.1f}/{:.1f}, min/max step {:.1f}/{:.1f}"
-                  .format(np.mean(episode_step), np.median(episode_step), np.min(episode_step),
-                          np.max(episode_step), dist_entropy, value_loss, action_loss))
+            print("\tdist_entropy, value_loss, action_loss: {:.5f}, {:.5f}, {:.5f}"
+                  .format(dist_entropy, value_loss, action_loss))
+            print("\tLast {} training episodes:".format(len(episode['reward'])))
+            for key in episode.keys():
+                print("\t\tmean/median {} {:.1f}/{:.1f}, min/max {} {:.1f}/{:.1f}"
+                      .format(key, np.mean(episode[key]), np.median(episode[key]),
+                              key, np.min(episode[key]), np.max(episode[key])))
             print()
 
-            if args.eval_interval is not None and len(episode_rewards) > 1 and j % args.eval_interval == 0:
-                ob_rms = utils.get_vec_normalize(envs).ob_rms
-                evaluate(policy, ob_rms, args.env_name, args.seed, args.num_processes, eval_log_dir, device)
+            writer.add_scalar('Data/Updates', j, global_step=total_num_steps)
+            writer.add_scalar('Data/Timesteps', total_num_steps, global_step=total_num_steps)
+            writer.add_scalar('Data/AvgTimePerUpdate', (end - start) / args.log_interval, global_step=total_num_steps)
+            writer.add_scalar('Data/Entropy', dist_entropy, global_step=total_num_steps)
+            writer.add_scalar('Data/ValueLoss', value_loss, global_step=total_num_steps)
+            writer.add_scalar('Data/ActionLoss', action_loss, global_step=total_num_steps)
+            for key in episode.keys():
+                writer.add_scalar('Episode/{}_Mean'.format(key), np.mean(episode[key]), global_step=total_num_steps)
+                writer.add_scalar('Episode/{}_Max'.format(key), np.max(episode[key]), global_step=total_num_steps)
+                writer.add_scalar('Episode/{}_Min'.format(key), np.min(episode[key]), global_step=total_num_steps)
+            # if args.eval_interval is not None and len(episode_rewards) > 1 and j % args.eval_interval == 0:
+            #     ob_rms = utils.get_vec_normalize(envs).ob_rms
+            #     evaluate(policy, ob_rms, args.env_name, args.seed, args.num_processes, eval_log_dir, device)
 
 
 if __name__ == "__main__":

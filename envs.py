@@ -33,18 +33,24 @@ except ImportError:
 
 
 class PommeSimpleWrapper(gym.Wrapper):
-    def __init__(self, env):
+    def __init__(self, env, training_agent, is_render=False):
         super().__init__(env)
         self.training_agent = 0
         self.observation_space = spaces.Box(low=0, high=20, shape=(16, 11, 11))
         self.episode = {
             'reward': 0,
-            'step': 0
+            'step': 0,
+            'num_bombs': 0
         }
+        self.is_render = is_render
 
     def step(self, action):
         actions = self.env.act(self.env.get_observations())
         actions[0] = action
+
+        if self.is_render:
+            self.render()
+
         observation, reward, done, info = self.env.step(actions)
 
         if (self.training_agent + constants.Item.Agent0.value) not in observation[self.training_agent]['alive']:
@@ -53,6 +59,7 @@ class PommeSimpleWrapper(gym.Wrapper):
         reward = self.reward(observation[self.training_agent], done)
         self.episode['reward'] += reward
         self.episode['step'] += 1
+        self.episode['num_bombs'] += (action == constants.Item.Bomb.value)
 
         if done:
             info['episode'] = self.episode
@@ -67,9 +74,10 @@ class PommeSimpleWrapper(gym.Wrapper):
             return -1
 
         if done:
-            if len(obs['alive']) == 1:
-                return 1  # win
-            return -1  # tie
+            for enemy in obs['enemies']:
+                if enemy.value in obs['alive']:
+                    return -1  # tie
+            return 1  # win
 
         return 0  # incomplete
 
@@ -77,27 +85,14 @@ class PommeSimpleWrapper(gym.Wrapper):
         observation = self.env.reset(**kwargs)
         self.episode = {
             'reward': 0,
-            'step': 0
+            'step': 0,
+            'num_bombs': 0
         }
 
         return self.observation(observation)
 
 
-class PommeWrapper(gym.ObservationWrapper):
-    def __init__(self, env):
-        super().__init__(env)
-        self.observation_space = spaces.Dict({
-            i: spaces.Box(low=0, high=20, shape=(16, 11, 11)) for i in range(4)
-        })
-
-    def observation(self, obs):
-        wrapped_obs = {}
-        for i in range(4):
-            wrapped_obs[i] = utils.featurize(obs[i])
-        return wrapped_obs
-
-
-def make_env(env_id, seed, rank, log_dir, allow_early_resets):
+def make_env(env_id, seed, rank, is_render, log_dir, allow_early_resets):
     def _thunk():
         if env_id.startswith("dm"):
             _, domain, task = env_id.split('.')
@@ -146,7 +141,7 @@ def make_env(env_id, seed, rank, log_dir, allow_early_resets):
         ]
         env = pommerman.make(env_id, agent_list=agent_list)
         env.seed(seed + rank)
-        env = PommeSimpleWrapper(env)
+        env = PommeSimpleWrapper(env, rank % 4, is_render)
 
         return env
 
@@ -159,8 +154,10 @@ def make_vec_envs(env_name,
                   log_dir,
                   device,
                   allow_early_resets):
+    is_render = num_processes == 1
+
     envs = [
-        make_env(env_name, seed, i, log_dir, allow_early_resets)
+        make_env(env_name, seed, i, is_render, log_dir, allow_early_resets)
         for i in range(num_processes)
     ]
 
