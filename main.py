@@ -162,17 +162,19 @@ def main():
 
             writer.add_scalar('Data/Updates', j, global_step=total_num_steps)
             writer.add_scalar('Data/Timesteps', total_num_steps, global_step=total_num_steps)
-            writer.add_scalar('Data/AvgTimePerUpdate', (end - start) / args.log_interval, global_step=total_num_steps)
+            writer.add_scalar('Data/AvgTimePerUpdate', ((end - start) / args.log_interval), global_step=total_num_steps)
             writer.add_scalar('Data/Entropy', dist_entropy, global_step=total_num_steps)
             writer.add_scalar('Data/ValueLoss', value_loss, global_step=total_num_steps)
             writer.add_scalar('Data/ActionLoss', action_loss, global_step=total_num_steps)
             for key in episode.keys():
-                writer.add_scalar('Episode/{}_Mean'.format(key), np.mean(episode[key]), global_step=total_num_steps)
-                writer.add_scalar('Episode/{}_Max'.format(key), np.max(episode[key]), global_step=total_num_steps)
-                writer.add_scalar('Episode/{}_Min'.format(key), np.min(episode[key]), global_step=total_num_steps)
+                writer.add_scalar('Episode/mean_{}'.format(key), np.mean(episode[key]), global_step=total_num_steps)
+                writer.add_scalar('Episode/max_{}'.format(key), np.max(episode[key]), global_step=total_num_steps)
+                writer.add_scalar('Episode/min_{}'.format(key), np.min(episode[key]), global_step=total_num_steps)
             # if args.eval_interval is not None and len(episode_rewards) > 1 and j % args.eval_interval == 0:
             #     ob_rms = utils.get_vec_normalize(envs).ob_rms
             #     evaluate(policy, ob_rms, args.env_name, args.seed, args.num_processes, eval_log_dir, device)
+
+            start = time.time()
 
 
 if __name__ == "__main__":

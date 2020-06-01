@@ -43,6 +43,7 @@ class PommeSimpleWrapper(gym.Wrapper):
             'num_bombs': 0
         }
         self.is_render = is_render
+        self.alive = [0, 1, 2, 3]
 
     def step(self, action):
         actions = self.env.act(self.env.get_observations())
@@ -56,7 +57,7 @@ class PommeSimpleWrapper(gym.Wrapper):
         if (self.training_agent + constants.Item.Agent0.value) not in observation[self.training_agent]['alive']:
             done = True
 
-        reward = self.reward(observation[self.training_agent], done)
+        reward = self.reward(self.alive, observation[self.training_agent], info)
         self.episode['reward'] += reward
         self.episode['step'] += 1
         self.episode['num_bombs'] += (action == constants.Item.Bomb.value)
@@ -64,22 +65,28 @@ class PommeSimpleWrapper(gym.Wrapper):
         if done:
             info['episode'] = self.episode
 
+        self.alive = observation[0]['alive']
         return self.observation(observation), reward, done, info
 
     def observation(self, obs):
         return utils.featurize(obs[self.training_agent])
 
-    def reward(self, obs, done):
-        if (self.training_agent + constants.Item.Agent0.value) not in obs['alive']:  # lose
-            return -1
+    def reward(self, alive, obs, info):
+        reward = 0
 
-        if done:
-            for enemy in obs['enemies']:
-                if enemy.value in obs['alive']:
-                    return -1  # tie
-            return 1  # win
+        for i in range(10, 14):
+            if i in alive and i not in obs['alive']:
+                if constants.Item(value=i) in obs['enemies']:
+                    reward += 0.5
+                elif i - 10 == self.training_agent:
+                    reward += -1
+                else:
+                    reward += -0.5
 
-        return 0  # incomplete
+        if info['result'] == constants.Result.Tie:
+            reward += -1
+
+        return reward
 
     def reset(self, **kwargs):
         observation = self.env.reset(**kwargs)
@@ -88,7 +95,7 @@ class PommeSimpleWrapper(gym.Wrapper):
             'step': 0,
             'num_bombs': 0
         }
-
+        self.alive = [0, 1, 2, 3]
         return self.observation(observation)
 
 
