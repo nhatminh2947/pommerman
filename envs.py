@@ -27,10 +27,10 @@ class PommeEnvironment(Process):
         print(env_id)
 
         agent_list = [
-            agents.SimpleAgent(),
-            agents.SimpleAgent(),
-            agents.SimpleAgent(),
-            agents.SimpleAgent()
+            agents.StaticAgent(),
+            agents.StaticAgent(),
+            agents.StaticAgent(),
+            agents.StaticAgent()
             # helpers.make_agent_from_string(agent_string, agent_id)
             # for agent_id, agent_string in enumerate(default_config['Agents'].split(','))
         ]

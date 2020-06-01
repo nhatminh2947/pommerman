@@ -132,7 +132,7 @@ def main():
     episode_ties = 0
     episode_losses = 0
     episode_steps = 0
-    episode_this_update = 0
+    episode_this_update = 1
 
     states = np.zeros([num_worker, N_CHANNELS, constants.BOARD_SIZE, constants.BOARD_SIZE])
 
@@ -306,7 +306,7 @@ def main():
             episode_rewards.clear()
             episode_steps = 0
             count_bomb = 0
-            episode_this_update = 0
+            episode_this_update = 1
             episode_wins = 0
             episode_ties = 0
             episode_losses = 0
