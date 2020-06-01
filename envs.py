@@ -83,6 +83,7 @@ class PommeEnvironment(Process):
                 info['result'] = constants.Result.Loss
 
             reward = self.reward(info)
+            self.episode_reward += reward
 
             if done:
                 print(
@@ -90,7 +91,6 @@ class PommeEnvironment(Process):
                                                                                              self.steps,
                                                                                              self.episode_reward,
                                                                                              info['result']))
-
                 info['episode_result'] = info['result']
                 info['episode_reward'] = self.episode_reward
                 info['num_bombs'] = self.num_bombs
@@ -98,7 +98,6 @@ class PommeEnvironment(Process):
 
                 observations = self.reset()
 
-            self.episode_reward += reward
             self.child_conn.send(
                 [utils.featurize(observations[self.training_agents]), reward, done, info])
 
