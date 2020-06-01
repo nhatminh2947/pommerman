@@ -73,7 +73,7 @@ class PommeEnvironment(Process):
             if (self.training_agent + constants.Item.Agent0.value) not in observations[self.training_agent]['alive']:
                 done = True
 
-            reward = self.reward(self.alive, observations[self.training_agent], info)
+            reward = self.reward(self.alive_agents, observations[self.training_agent], info)
             self.episode_reward += reward
 
             if done:
@@ -89,7 +89,7 @@ class PommeEnvironment(Process):
 
                 observations = self.reset()
 
-            self.alive = observations[0]['alive']
+            self.alive_agents = observations[0]['alive']
 
             self.child_conn.send(
                 [utils.featurize(observations[self.training_agents]), reward, done, info])
