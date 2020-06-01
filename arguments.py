@@ -119,11 +119,6 @@ def get_args():
         default=False,
         help='disables CUDA training')
     parser.add_argument(
-        '--use-proper-time-limits',
-        action='store_true',
-        default=False,
-        help='compute returns taking into account time limits')
-    parser.add_argument(
         '--recurrent-policy',
         action='store_true',
         default=False,
@@ -133,6 +128,10 @@ def get_args():
         action='store_true',
         default=False,
         help='use a linear schedule on the learning rate')
+    parser.add_argument(
+        '--exp-name',
+        default='experiment_',
+        help='Name of experiment')
     args = parser.parse_args()
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()

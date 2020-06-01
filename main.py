@@ -25,8 +25,6 @@ from gym import spaces
 
 
 def main():
-    writer = SummaryWriter()
-
     args = get_args()
 
     torch.manual_seed(args.seed)
@@ -44,7 +42,14 @@ def main():
     torch.set_num_threads(1)
     device = torch.device("cuda:0" if args.cuda else "cpu")
 
-    envs = make_vec_envs(args.env_name, args.seed, args.num_processes, args.log_dir, device, False)
+    envs = make_vec_envs(args.env_name, args.seed, args.num_processes, device)
+
+    writer = SummaryWriter(log_dir='./runs/{}'.format(args.exp_name),
+                           comment='lr{}_step{}_processes_{}_minibatch_{}_env_step{}'.format(args.lr,
+                                                                                             args.num_steps,
+                                                                                             args.num_processes,
+                                                                                             args.num_mini_batch,
+                                                                                             args.num_env_steps))
 
     policy = Policy(
         utils.OBS_SPACE_PER_AGENT.shape,
@@ -90,10 +95,8 @@ def main():
     }
 
     start = time.time()
-    num_updates = int(
-        args.num_env_steps) // args.num_steps // args.num_processes
+    num_updates = int(args.num_env_steps) // args.num_steps // args.num_processes
     for j in range(num_updates):
-
         if args.use_linear_lr_decay:
             # decrease learning rate linearly
             utils.update_linear_schedule(
@@ -117,17 +120,15 @@ def main():
 
             # If done then clean the history of observations.
             masks = torch.tensor([[0.0] if done_ else [1.0] for done_ in done])
-            bad_masks = torch.tensor([[0.0] if 'bad_transition' in info.keys() else [1.0] for info in infos])
 
-            rollouts.insert(obs, recurrent_hidden_states, action, action_log_prob, value, reward, masks, bad_masks)
+            rollouts.insert(obs, recurrent_hidden_states, action, action_log_prob, value, reward, masks)
 
         with torch.no_grad():
             next_value = policy.get_value(
                 rollouts.obs[-1], rollouts.recurrent_hidden_states[-1],
                 rollouts.masks[-1]).detach()
 
-        rollouts.compute_returns(next_value, args.use_gae, args.gamma,
-                                 args.gae_lambda, args.use_proper_time_limits)
+        rollouts.compute_returns(next_value, args.use_gae, args.gamma, args.gae_lambda)
 
         value_loss, action_loss, dist_entropy = agent.update(rollouts)
 

@@ -7,8 +7,6 @@ from gym.spaces.box import Box
 import pommerman
 from pommerman import agents, constants
 from gym import spaces
-from baselines import bench
-from baselines.common.atari_wrappers import make_atari, wrap_deepmind
 from baselines.common.vec_env import VecEnvWrapper
 from baselines.common.vec_env.dummy_vec_env import DummyVecEnv
 from baselines.common.vec_env.shmem_vec_env import ShmemVecEnv
@@ -16,26 +14,11 @@ from baselines.common.vec_env.vec_normalize import VecNormalize as VecNormalize_
 
 import utils
 
-try:
-    import dm_control2gym
-except ImportError:
-    pass
-
-try:
-    import roboschool
-except ImportError:
-    pass
-
-try:
-    import pybullet_envs
-except ImportError:
-    pass
-
 
 class PommeSimpleWrapper(gym.Wrapper):
     def __init__(self, env, training_agent, is_render=False):
         super().__init__(env)
-        self.training_agent = 0
+        self.training_agent = training_agent
         self.observation_space = spaces.Box(low=0, high=20, shape=(16, 11, 11))
         self.episode = {
             'reward': 0,
@@ -99,46 +82,7 @@ class PommeSimpleWrapper(gym.Wrapper):
         return self.observation(observation)
 
 
-def make_env(env_id, seed, rank, is_render, log_dir, allow_early_resets):
-    def _thunk():
-        if env_id.startswith("dm"):
-            _, domain, task = env_id.split('.')
-            env = dm_control2gym.make(domain_name=domain, task_name=task)
-        else:
-            env = gym.make(env_id)
-
-        is_atari = hasattr(gym.envs, 'atari') and isinstance(
-            env.unwrapped, gym.envs.atari.atari_env.AtariEnv)
-        if is_atari:
-            env = make_atari(env_id)
-
-        env.seed(seed + rank)
-
-        if str(env.__class__.__name__).find('TimeLimit') >= 0:
-            env = TimeLimitMask(env)
-
-        if log_dir is not None:
-            env = bench.Monitor(
-                env,
-                os.path.join(log_dir, str(rank)),
-                allow_early_resets=allow_early_resets)
-
-        if is_atari:
-            if len(env.observation_space.shape) == 3:
-                env = wrap_deepmind(env)
-        elif len(env.observation_space.shape) == 3:
-            raise NotImplementedError(
-                "CNN models work only for atari,\n"
-                "please use a custom wrapper for a custom pixel input env.\n"
-                "See wrap_deepmind for an example.")
-
-        # If the input has shape (W,H,3), wrap for PyTorch convolutions
-        obs_shape = env.observation_space.shape
-        if len(obs_shape) == 3 and obs_shape[2] in [1, 3]:
-            env = TransposeImage(env, op=[2, 0, 1])
-
-        return env
-
+def make_env(env_id, seed, rank, is_render):
     def _make_pommerman():
         agent_list = [
             agents.StaticAgent(),
@@ -158,15 +102,10 @@ def make_env(env_id, seed, rank, is_render, log_dir, allow_early_resets):
 def make_vec_envs(env_name,
                   seed,
                   num_processes,
-                  log_dir,
-                  device,
-                  allow_early_resets):
+                  device):
     is_render = num_processes == 1
 
-    envs = [
-        make_env(env_name, seed, i, is_render, log_dir, allow_early_resets)
-        for i in range(num_processes)
-    ]
+    envs = [make_env(env_name, seed, i, is_render) for i in range(num_processes)]
 
     if len(envs) > 1:
         envs = ShmemVecEnv(envs, context='fork')
