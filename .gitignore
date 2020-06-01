@@ -2,3 +2,4 @@ runs/
 models/
 .idea
 __pycache__
+trained_models

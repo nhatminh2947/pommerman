@@ -27,7 +27,7 @@ def main():
     env.close()
 
     use_cuda = True
-    is_render = True
+    is_render = False
     model_path = 'models/{}.model'.format(env_id)
     predictor_path = 'models/{}.pred'.format(env_id)
     target_path = 'models/{}.target'.format(env_id)
@@ -86,9 +86,9 @@ def main():
                         print("Match end up with a tie")
                         tie += 1
 
-    print('winrate: {}'.format(wins / 1000))
-    print('losses: {}'.format(losses / 1000))
-    print('tie: {}'.format(tie / 1000))
+    print('winrate: {}'.format(wins / 100))
+    print('losses: {}'.format(losses / 100))
+    print('tie: {}'.format(tie / 100))
 
 
 if __name__ == '__main__':
