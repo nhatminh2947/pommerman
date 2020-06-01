@@ -12,10 +12,10 @@ def main():
     env_id = default_config['EnvID']
 
     agent_list = [
-        agents.SimpleAgent(),
-        agents.SimpleAgent(),
-        agents.SimpleAgent(),
-        agents.SimpleAgent()
+        agents.StaticAgent(),
+        agents.StaticAgent(),
+        agents.StaticAgent(),
+        agents.StaticAgent()
     ]
 
     env = pommerman.make(env_id, agent_list)

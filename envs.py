@@ -35,12 +35,7 @@ class PommeEnvironment(Process):
             # for agent_id, agent_string in enumerate(default_config['Agents'].split(','))
         ]
 
-        if is_team:
-            self.training_agents = [(env_idx % 4), ((env_idx % 4) + 2) % 4]  # Agents id is [0, 2] or [1, 3]
-        else:
-            self.training_agents = env_idx % 4  # Setting for single agent (FFA)
-            # agent_list[self.training_agents] = agents.RandomAgent()
-
+        self.training_agent = env_idx % 4
         self.env = pommerman.make(env_id, agent_list)
 
         self.is_render = is_render
@@ -53,9 +48,9 @@ class PommeEnvironment(Process):
         self.env.reset()
         self.episode_reward = 0
         self.num_bombs = 0
-        self.alive = True
+        self.alive_agents = [0, 1, 2, 3]
 
-        print("Training Agents:", self.training_agents)
+        print("Training Agent:", self.training_agent)
 
     def run(self):
         super(PommeEnvironment, self).run()
@@ -67,7 +62,7 @@ class PommeEnvironment(Process):
 
             actions = self.env.act(self.env.get_observations())
 
-            actions[self.training_agents] = agent_action
+            actions[self.training_agent] = agent_action
             observations, reward, done, info = self.env.step(actions)
 
             self.steps += 1
@@ -75,14 +70,10 @@ class PommeEnvironment(Process):
             if agent_action == constants.Action.Bomb.value:
                 self.num_bombs += 1
 
-            self.alive = (self.training_agents + constants.Item.Agent0.value) in observations[self.training_agents][
-                'alive']
-
-            if not self.alive:
+            if (self.training_agent + constants.Item.Agent0.value) not in observations[self.training_agent]['alive']:
                 done = True
-                info['result'] = constants.Result.Loss
 
-            reward = self.reward(info)
+            reward = self.reward(self.alive, observations[self.training_agent], info)
             self.episode_reward += reward
 
             if done:
@@ -98,21 +89,33 @@ class PommeEnvironment(Process):
 
                 observations = self.reset()
 
+            self.alive = observations[0]['alive']
+
             self.child_conn.send(
                 [utils.featurize(observations[self.training_agents]), reward, done, info])
 
-    def reward(self, info):
-        if info['result'] == constants.Result.Tie or info['result'] == constants.Result.Loss:
-            return -1
-        if info['result'] == constants.Result.Win:
-            return 1
-        return 0
+    def reward(self, alive_agents, obs, info):
+        reward = 0
+
+        for id in range(10, 14):
+            if id in alive_agents and id not in obs['alive']:
+                if constants.Item(value=id) in obs['enemies']:
+                    reward += 0.5
+                elif constants.Item(value=id) == obs['teammate']:
+                    reward += -0.5
+                elif id - 10 == self.training_agent:
+                    reward += -1
+
+        if info['result'] == constants.Result.Tie:
+            reward += -1
+
+        return reward
 
     def reset(self):
         self.steps = 0
         self.episode_reward = 0
-        self.alive = True
         self.episode += 1
         self.num_bombs = 0
+        self.alive_agents = [0, 1, 2, 3]
 
         return self.env.reset()
