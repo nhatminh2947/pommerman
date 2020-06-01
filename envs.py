@@ -70,7 +70,6 @@ class PommeEnvironment(Process):
             actions[self.training_agents] = agent_action
             observations, reward, done, info = self.env.step(actions)
 
-            self.episode_reward += reward[self.training_agents]
             self.steps += 1
 
             if agent_action == constants.Action.Bomb.value:
@@ -81,31 +80,34 @@ class PommeEnvironment(Process):
 
             if not self.alive:
                 done = True
+                info['result'] = constants.Result.Loss
+
+            reward = self.reward(info)
 
             if done:
-                if not self.alive:
-                    result = constants.Result.Loss
-                else:
-                    if info['result'] == constants.Result.Win:
-                        result = constants.Result.Win
-                    else:
-                        result = constants.Result.Tie
-
                 print(
                     "Env #{}\t\tEpisode #{}\t\tSteps: {}\t\tReward: {}\t\tResult: {}".format(self.env_idx, self.episode,
                                                                                              self.steps,
                                                                                              self.episode_reward,
-                                                                                             result))
+                                                                                             info['result']))
 
-                info['episode_result'] = result
+                info['episode_result'] = info['result']
                 info['episode_reward'] = self.episode_reward
                 info['num_bombs'] = self.num_bombs
                 info['steps'] = self.steps
 
                 observations = self.reset()
 
+            self.episode_reward += reward
             self.child_conn.send(
                 [utils.featurize(observations[self.training_agents]), reward[self.training_agents], done, info])
+
+    def reward(self, info):
+        if info['result'] == constants.Result.Tie or info['result'] == constants.Result.Loss:
+            return -1
+        if info['result'] == constants.Result.Win:
+            return 1
+        return 0
 
     def reset(self):
         self.steps = 0
