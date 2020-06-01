@@ -100,7 +100,7 @@ class PommeEnvironment(Process):
 
             self.episode_reward += reward
             self.child_conn.send(
-                [utils.featurize(observations[self.training_agents]), reward[self.training_agents], done, info])
+                [utils.featurize(observations[self.training_agents]), reward, done, info])
 
     def reward(self, info):
         if info['result'] == constants.Result.Tie or info['result'] == constants.Result.Loss:
