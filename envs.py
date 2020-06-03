@@ -26,7 +26,7 @@ class PommeSimpleWrapper(gym.Wrapper):
             'num_bombs': 0
         }
         self.is_render = is_render
-        self.alive = [0, 1, 2, 3]
+        self.alive = [10, 11, 12, 13]
 
     def step(self, action):
         actions = self.env.act(self.env.get_observations())
@@ -78,7 +78,7 @@ class PommeSimpleWrapper(gym.Wrapper):
             'step': 0,
             'num_bombs': 0
         }
-        self.alive = [0, 1, 2, 3]
+        self.alive = [10, 11, 12, 13]
         return self.observation(observation)
 
 
